@@ -13,6 +13,7 @@ from app.schemas.contract import (
     CoarseRoute,
     TaskCategory,
     ComplexityLevel,
+    UserRoutingOverride,
     OptimizationDecisionResponse,
     CacheOutcome,
     ErrorCategory,
@@ -500,5 +501,77 @@ def test_telemetry_schema_with_complexity():
     )
     assert record.complexity_score == 0.74
     assert record.complexity_level == ComplexityLevel.HIGH
+
+
+def test_user_override_in_query_package_and_response():
+    """Verify user_override is validated and echoed in response."""
+    # Test prefer-simple
+    payload_simple = {
+        "request_id": "req_override_simple",
+        "query_text": "Explain the architecture of Transformer neural networks",
+        "user_override": UserRoutingOverride.PREFER_SIMPLE.value,
+        "client_metadata": {
+            "extension_version": "0.1.0"
+        }
+    }
+    res_simple = client.post("/api/v1/optimize", json=payload_simple)
+    assert res_simple.status_code == 200
+    data_simple = res_simple.json()
+    assert data_simple["user_override"] == "prefer-simple"
+
+    # Test prefer-strong
+    payload_strong = {
+        "request_id": "req_override_strong",
+        "query_text": "What is 2 + 2?",
+        "user_override": UserRoutingOverride.PREFER_STRONG.value,
+        "client_metadata": {
+            "extension_version": "0.1.0"
+        }
+    }
+    res_strong = client.post("/api/v1/optimize", json=payload_strong)
+    assert res_strong.status_code == 200
+    data_strong = res_strong.json()
+    assert data_strong["user_override"] == "prefer-strong"
+
+    # Test automatic (default)
+    payload_auto = {
+        "request_id": "req_override_auto",
+        "query_text": "Hello Claude",
+        "user_override": UserRoutingOverride.AUTOMATIC.value,
+        "client_metadata": {
+            "extension_version": "0.1.0"
+        }
+    }
+    res_auto = client.post("/api/v1/optimize", json=payload_auto)
+    assert res_auto.status_code == 200
+    data_auto = res_auto.json()
+    assert data_auto["user_override"] == "automatic"
+
+
+def test_invalid_user_override_rejection():
+    """Reject unlisted user_override with HTTP 422."""
+    payload = {
+        "request_id": "req_invalid_override",
+        "query_text": "Sample text",
+        "user_override": "prefer-cheapest",  # Invalid enum value
+        "client_metadata": {
+            "extension_version": "0.1.0"
+        }
+    }
+    res = client.post("/api/v1/optimize", json=payload)
+    assert res.status_code == 422
+
+
+def test_telemetry_schema_with_user_override():
+    """Verify PerformanceTelemetryRecord safely accepts user_override."""
+    record = PerformanceTelemetryRecord(
+        correlation_id="corr_uo_1",
+        client_timestamp=1710000000000,
+        decision_type=DecisionType.NO_OPTIMIZATION,
+        user_override=UserRoutingOverride.PREFER_STRONG,
+        latency_ms=10.5
+    )
+    assert record.user_override == UserRoutingOverride.PREFER_STRONG
+
 
 

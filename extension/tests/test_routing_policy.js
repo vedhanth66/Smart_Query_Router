@@ -233,4 +233,46 @@ assert.strictEqual(disabledResult.route, CoarseRoute.NEEDS_EVALUATION);
 assert.strictEqual(disabledResult.reasonCode, RoutingReasonCode.POLICY_DISABLED_FALLTHROUGH);
 console.log('PASS: Policy disabled behavior verified');
 
+// Test 8: Optional User Override Behavior
+console.log('Test 8: User override mechanics (automatic, prefer-simple, prefer-strong)...');
+
+// 8a. Automatic routing default matches normal classification
+const defaultRes = policy.classify(shortCodeEvent, { userOverride: 'automatic' });
+assert.strictEqual(defaultRes.route, CoarseRoute.COMPLEX_MODEL_CANDIDATE);
+assert.strictEqual(defaultRes.userOverride, 'automatic');
+
+// 8b. prefer-simple routes non-local query to simple-model candidate
+const preferSimpleRes = policy.classify(shortCodeEvent, { userOverride: 'prefer-simple' });
+assert.strictEqual(preferSimpleRes.route, CoarseRoute.SIMPLE_MODEL_CANDIDATE);
+assert.strictEqual(preferSimpleRes.ruleId, 'RULE_USER_OVERRIDE_PREFER_SIMPLE');
+assert.strictEqual(preferSimpleRes.reasonCode, RoutingReasonCode.USER_OVERRIDE_PREFER_SIMPLE);
+assert.strictEqual(preferSimpleRes.userOverride, 'prefer-simple');
+
+// 8c. prefer-strong routes non-local simple query to complex-model candidate
+const preferStrongRes = policy.classify(shortSimpleEvent, { userOverride: 'prefer-strong' });
+assert.strictEqual(preferStrongRes.route, CoarseRoute.COMPLEX_MODEL_CANDIDATE);
+assert.strictEqual(preferStrongRes.ruleId, 'RULE_USER_OVERRIDE_PREFER_STRONG');
+assert.strictEqual(preferStrongRes.reasonCode, RoutingReasonCode.USER_OVERRIDE_PREFER_STRONG);
+assert.strictEqual(preferStrongRes.userOverride, 'prefer-strong');
+
+// 8d. local-eligible queries remain local-eligible under both prefer-simple and prefer-strong
+const localPreferSimple = policy.classify(arithmeticEvent, { userOverride: 'prefer-simple' });
+assert.strictEqual(localPreferSimple.route, CoarseRoute.LOCAL_ELIGIBLE);
+assert.strictEqual(localPreferSimple.reasonCode, RoutingReasonCode.LOCAL_DETERMINISTIC_RULE_MATCH);
+
+const localPreferStrong = policy.classify(arithmeticEvent, { userOverride: 'prefer-strong' });
+assert.strictEqual(localPreferStrong.route, CoarseRoute.LOCAL_ELIGIBLE);
+assert.strictEqual(localPreferStrong.reasonCode, RoutingReasonCode.LOCAL_DETERMINISTIC_RULE_MATCH);
+
+// 8e. UserSettingsManager injected into constructor
+const { UserSettingsManager } = require('../src/shared/user_settings');
+const customSettingsMgr = new UserSettingsManager();
+customSettingsMgr.updateSettings({ routingOverride: 'prefer-simple' });
+const policyWithSettings = new DeterministicRoutingPolicy({}, customSettingsMgr);
+const managerOverrideRes = policyWithSettings.classify(shortCodeEvent);
+assert.strictEqual(managerOverrideRes.route, CoarseRoute.SIMPLE_MODEL_CANDIDATE);
+assert.strictEqual(managerOverrideRes.reasonCode, RoutingReasonCode.USER_OVERRIDE_PREFER_SIMPLE);
+console.log('PASS: User override mechanics verified across all states');
+
 console.log('--- ALL DETERMINISTIC ROUTING POLICY TESTS PASSED ---');
+

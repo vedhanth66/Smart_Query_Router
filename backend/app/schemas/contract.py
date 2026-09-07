@@ -61,6 +61,27 @@ class ComplexityLevel(str, Enum):
     VERY_HIGH = "VERY_HIGH"
 
 
+class UserRoutingOverride(str, Enum):
+    """User routing preference override."""
+    AUTOMATIC = "automatic"
+    PREFER_SIMPLE = "prefer-simple"
+    PREFER_STRONG = "prefer-strong"
+
+
+class ModelTier(str, Enum):
+    """Abstract model capability tier."""
+    FAST_CHEAP = "fast_cheap"
+    STRONG = "strong"
+
+
+class CacheOutcome(str, Enum):
+    """Performance evaluation cache outcome."""
+    HIT = "HIT"
+    MISS = "MISS"
+    BYPASS = "BYPASS"
+    NOT_CHECKED = "NOT_CHECKED"
+
+
 class ClientMetadata(BaseModel):
     """Metadata regarding client and extension environment."""
     model_config = ConfigDict(extra="forbid")
@@ -87,6 +108,16 @@ class ClientMetadata(BaseModel):
         default=None,
         max_length=128,
         description="Target origin hostname (e.g. 'claude.ai')"
+    )
+    user_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional caller user identifier"
+    )
+    tenant_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional tenant/organization identifier"
     )
 
 
@@ -155,6 +186,10 @@ class NormalizedQueryPackage(BaseModel):
         default=None,
         description="Optional categorical complexity level"
     )
+    user_override: UserRoutingOverride | None = Field(
+        default=None,
+        description="Optional user routing preference override"
+    )
     query_text: str = Field(
         ...,
         min_length=1,
@@ -173,6 +208,20 @@ class NormalizedQueryPackage(BaseModel):
     client_metadata: ClientMetadata = Field(
         ...,
         description="Client and extension version metadata"
+    )
+    execute_route: bool = Field(
+        default=True,
+        description="Whether to execute the selected model route on the gateway"
+    )
+    user_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional caller user identifier"
+    )
+    tenant_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional tenant/organization identifier"
     )
 
     @field_validator("query_text")
@@ -201,6 +250,52 @@ class OptimizationInstructions(BaseModel):
         default=None,
         max_length=256,
         description="Non-sensitive operational note"
+    )
+
+
+class RouteExecutionMetadata(BaseModel):
+    """Metadata recorded for route execution via the model gateway."""
+    model_config = ConfigDict(extra="forbid")
+
+    route: str = Field(..., description="Selected coarse route")
+    model_id: str | None = Field(default=None, description="Executed model identifier")
+    model_version: str | None = Field(default=None, description="Executed model version metadata")
+    latency_ms: float = Field(default=0.0, ge=0.0, description="Model execution latency in milliseconds")
+    failure_category: str = Field(default="NONE", description="Failure category ('NONE', 'TIMEOUT', 'PROVIDER_ERROR', 'RETRY_EXHAUSTED', etc.)")
+    fallback_applied: bool = Field(default=False, description="Whether safe fallback was triggered on execution failure")
+    executed_content: str | None = Field(default=None, description="Model output completion if executed")
+    escalation_occurred: bool = Field(default=False, description="Whether small-model response failed evaluation and was escalated to stronger model")
+    escalation_reason: str | None = Field(default=None, description="Reason code or explanation for escalation")
+    cache_outcome: CacheOutcome = Field(
+        default=CacheOutcome.NOT_CHECKED,
+        description="Response cache outcome ('HIT', 'MISS', 'BYPASS', 'NOT_CHECKED')"
+    )
+    cache_key: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Computed cache key if cache was evaluated"
+    )
+    is_deduplicated: bool = Field(
+        default=False,
+        description="Whether this request shared an in-flight execution with other callers"
+    )
+    deduplication_role: str | None = Field(
+        default=None,
+        description="Role in deduplication flight ('leader', 'follower', or None)"
+    )
+    semantic_cache_outcome: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Semantic cache outcome ('SEMANTIC_HIT', 'SEMANTIC_MISS', 'SEMANTIC_BYPASS', or None)"
+    )
+    semantic_validation_reason: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Detailed reason for semantic cache match validation or rejection"
+    )
+    evaluation_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Evaluation or comparative evaluation details"
     )
 
 
@@ -242,6 +337,14 @@ class OptimizationDecisionResponse(BaseModel):
         default=None,
         description="Categorical complexity level associated with decision"
     )
+    user_override: UserRoutingOverride | None = Field(
+        default=None,
+        description="User routing preference override associated with decision"
+    )
+    model_tier: ModelTier | None = Field(
+        default=None,
+        description="Abstract model capability tier recommended by gateway"
+    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -258,6 +361,10 @@ class OptimizationDecisionResponse(BaseModel):
         default=None,
         description="Optional instructions if optimization action is recommended"
     )
+    execution_metadata: RouteExecutionMetadata | None = Field(
+        default=None,
+        description="Execution and performance metadata recorded during gateway routing"
+    )
     timestamp: int = Field(
         default_factory=lambda: int(time.time() * 1000),
         description="Epoch timestamp in milliseconds"
@@ -267,14 +374,6 @@ class OptimizationDecisionResponse(BaseModel):
         max_length=32,
         description="Router backend version"
     )
-
-
-class CacheOutcome(str, Enum):
-    """Performance evaluation cache outcome."""
-    HIT = "HIT"
-    MISS = "MISS"
-    BYPASS = "BYPASS"
-    NOT_CHECKED = "NOT_CHECKED"
 
 
 class ErrorCategory(str, Enum):
@@ -302,10 +401,19 @@ class PerformanceTelemetryRecord(BaseModel):
     task_category: TaskCategory | None = None
     complexity_score: float | None = Field(default=None, ge=0.0, le=1.0)
     complexity_level: ComplexityLevel | None = None
+    user_override: UserRoutingOverride | None = None
+    model_tier: ModelTier | None = None
     model_route: str | None = Field(default=None, max_length=64)
+    model_version: str | None = Field(default=None, max_length=64)
     cache_outcome: CacheOutcome = CacheOutcome.NOT_CHECKED
     latency_ms: float = Field(..., ge=0.0)
+    execution_latency_ms: float | None = Field(default=None, ge=0.0)
     error_category: ErrorCategory = ErrorCategory.NONE
+    failure_category: str = Field(default="NONE", max_length=64)
+    escalation_occurred: bool = Field(default=False, description="Whether escalation occurred")
+    escalation_reason: str | None = Field(default=None, max_length=256, description="Reason for escalation")
+    semantic_cache_outcome: str | None = Field(default=None, max_length=64)
+    semantic_validation_reason: str | None = Field(default=None, max_length=256)
     feature_identifiers: dict[str, Any] = Field(default_factory=dict)
     version_identifiers: dict[str, str] = Field(default_factory=dict)
     debug_metadata: dict[str, Any] | None = Field(

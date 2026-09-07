@@ -1,4 +1,4 @@
-"""Contract schemas package."""
+"""Contract and Evaluator schemas package."""
 from .contract import (
     ClientMetadata,
     LocalFeatures,
@@ -8,11 +8,23 @@ from .contract import (
     CoarseRoute,
     TaskCategory,
     ComplexityLevel,
+    UserRoutingOverride,
+    ModelTier,
     OptimizationInstructions,
+    RouteExecutionMetadata,
     OptimizationDecisionResponse,
     CacheOutcome,
     ErrorCategory,
     PerformanceTelemetryRecord,
+)
+from .evaluator import (
+    EscalationRecommendation,
+    IssueSeverity,
+    IssueCategory,
+    EvaluatorType,
+    EvaluationIssue,
+    EvaluationRequest,
+    EvaluationResult,
 )
 
 __all__ = [
@@ -24,9 +36,19 @@ __all__ = [
     "CoarseRoute",
     "TaskCategory",
     "ComplexityLevel",
+    "UserRoutingOverride",
+    "ModelTier",
     "OptimizationInstructions",
+    "RouteExecutionMetadata",
     "OptimizationDecisionResponse",
     "CacheOutcome",
     "ErrorCategory",
     "PerformanceTelemetryRecord",
+    "EscalationRecommendation",
+    "IssueSeverity",
+    "IssueCategory",
+    "EvaluatorType",
+    "EvaluationIssue",
+    "EvaluationRequest",
+    "EvaluationResult",
 ]

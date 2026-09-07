@@ -40,6 +40,7 @@
         "src/shared/experimental_summarizer.js",
         "src/shared/backend_client.js",
         "src/shared/telemetry.js",
+        "src/shared/user_settings.js",
         "src/shared/routing_policy_config.js",
         "src/shared/routing_policy.js",
         "src/content/claude_interceptor.js"

@@ -125,4 +125,17 @@ for (const jsFile of csDef.js) {
   }
 }
 
+const evaluatorPath = path.join(EXTENSION_ROOT, 'src/shared/evaluator.js');
+if (fs.existsSync(evaluatorPath)) {
+  try {
+    const evCode = fs.readFileSync(evaluatorPath, 'utf8');
+    new vm.Script(evCode, { filename: 'src/shared/evaluator.js' });
+    console.log('PASS: src/shared/evaluator.js compiles with zero syntax errors');
+  } catch (e) {
+    console.error('FAIL: src/shared/evaluator.js syntax error:', e.message);
+    process.exit(1);
+  }
+}
+
 console.log('--- ALL EXTENSION BASELINE CHECKS PASSED ---');
+

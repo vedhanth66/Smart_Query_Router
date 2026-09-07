@@ -131,7 +131,13 @@
     candidateCount = 0,
     versionIdentifiers = {},
     options = {},
-    debugTrace = null
+    debugTrace = null,
+    coarseRoute = null,
+    modelVersion = null,
+    failureCategory = 'NONE',
+    executionLatencyMs = null,
+    escalationOccurred = false,
+    escalationReason = null
   }) {
     const isDev = isDebugModeEnabled(options);
 
@@ -140,10 +146,16 @@
       client_timestamp: typeof clientTimestamp === 'number' ? clientTimestamp : Date.now(),
       backend_timestamp: typeof backendTimestamp === 'number' ? backendTimestamp : null,
       decision_type: decisionType,
+      coarse_route: coarseRoute || null,
       model_route: modelRoute || null,
+      model_version: modelVersion || null,
       cache_outcome: Object.values(CacheOutcome).includes(cacheOutcome) ? cacheOutcome : CacheOutcome.NOT_CHECKED,
       latency_ms: Number(Number(latencyMs).toFixed(2)),
+      execution_latency_ms: typeof executionLatencyMs === 'number' ? Number(executionLatencyMs.toFixed(2)) : null,
       error_category: Object.values(ErrorCategory).includes(errorCategory) ? errorCategory : ErrorCategory.NONE,
+      failure_category: failureCategory || 'NONE',
+      escalation_occurred: Boolean(escalationOccurred),
+      escalation_reason: escalationReason || null,
       feature_identifiers: extractSafeFeatureSummary(localFeatures, candidateCount),
       version_identifiers: Object.assign(
         { extension: '0.1.0', server: '0.1.0', schema: '1.0' },

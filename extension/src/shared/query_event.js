@@ -107,7 +107,7 @@
    * @param {string} params.triggerType - 'keyboard_enter' | 'button_click' | 'unknown'
    * @param {object} [params.context] - Safe page context
    */
-  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {}, correlationId = null }) {
+  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {}, correlationId = null, userOverride = 'automatic' }) {
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).slice(2, 9);
     const eventId = `evt_${timestamp}_${randomSuffix}`;
@@ -204,7 +204,10 @@
       },
 
       // 10. Deterministic routing policy classification
-      routing: null
+      routing: null,
+
+      // 11. Optional user routing override ('automatic' by default)
+      userOverride: typeof userOverride === 'string' && userOverride.trim() ? userOverride.trim() : 'automatic'
     };
   }
 
@@ -245,7 +248,8 @@
       coarseRoute: queryEvent.routing ? queryEvent.routing.route : null,
       taskCategory: queryEvent.taskClassification ? queryEvent.taskClassification.category : (queryEvent.routing ? queryEvent.routing.taskCategory : 'unknown'),
       complexityScore: queryEvent.complexity ? queryEvent.complexity.score : null,
-      complexityLevel: queryEvent.complexity ? queryEvent.complexity.level : null
+      complexityLevel: queryEvent.complexity ? queryEvent.complexity.level : null,
+      userOverride: queryEvent.userOverride || (queryEvent.routing ? queryEvent.routing.userOverride : null) || 'automatic'
     };
   }
 
@@ -301,6 +305,10 @@
 
     if (evt.routing !== undefined && evt.routing !== null && typeof evt.routing !== 'object') {
       return { valid: false, error: 'Routing partition must be an object' };
+    }
+
+    if (evt.userOverride !== undefined && typeof evt.userOverride !== 'string') {
+      return { valid: false, error: 'userOverride must be a string' };
     }
 
     return { valid: true };

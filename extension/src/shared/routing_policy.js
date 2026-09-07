@@ -21,13 +21,18 @@
     try {
       taskClassifier = require('./task_classifier');
     } catch (_) {}
-    module.exports = factory(configModule, taskClassifier);
+    let userSettings = null;
+    try {
+      userSettings = require('./user_settings');
+    } catch (_) {}
+    module.exports = factory(configModule, taskClassifier, userSettings);
   } else {
     const configModule = root.SmartQueryRouterRoutingPolicyConfig;
     const taskClassifier = root.SmartQueryRouterTaskClassifier || null;
-    root.SmartQueryRouterRoutingPolicy = factory(configModule, taskClassifier);
+    const userSettings = root.SmartQueryRouterUserSettings || null;
+    root.SmartQueryRouterRoutingPolicy = factory(configModule, taskClassifier, userSettings);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (configModule, taskClassifierModule) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (configModule, taskClassifierModule, userSettingsModule) {
   'use strict';
 
   const {
@@ -64,6 +69,8 @@
     COMPLEX_MULTI_QUESTION: 'COMPLEX_MULTI_QUESTION',
     COMPLEX_STRUCTURED_LIST: 'COMPLEX_STRUCTURED_LIST',
     SIMPLE_DIRECT_INQUIRY: 'SIMPLE_DIRECT_INQUIRY',
+    USER_OVERRIDE_PREFER_SIMPLE: 'USER_OVERRIDE_PREFER_SIMPLE',
+    USER_OVERRIDE_PREFER_STRONG: 'USER_OVERRIDE_PREFER_STRONG',
     POLICY_DISABLED_FALLTHROUGH: 'POLICY_DISABLED_FALLTHROUGH',
     FALLTHROUGH_NEEDS_EVALUATION: 'FALLTHROUGH_NEEDS_EVALUATION'
   });
@@ -71,9 +78,11 @@
   class DeterministicRoutingPolicy {
     /**
      * @param {object} [configOverrides]
+     * @param {object} [userSettingsManager] - Optional UserSettingsManager instance
      */
-    constructor(configOverrides = {}) {
+    constructor(configOverrides = {}, userSettingsManager = null) {
       this.config = createRoutingPolicyConfig(configOverrides);
+      this.userSettingsManager = userSettingsManager;
     }
 
     /**
@@ -88,9 +97,32 @@
      * Inspects query event and feature signals to determine coarse route.
      * 
      * @param {object} queryEvent - DetectedQueryEvent or mock object
+     * @param {object} [options] - Optional classification options
+     * @param {string} [options.userOverride] - User override ('automatic', 'prefer-simple', 'prefer-strong')
      * @returns {object} RoutingClassification
      */
-    classify(queryEvent) {
+    classify(queryEvent, options = {}) {
+      const result = this._classify(queryEvent, options);
+      if (result && typeof result === 'object') {
+        const userOverride = (options && typeof options.userOverride === 'string' && options.userOverride.trim())
+          ? options.userOverride.trim()
+          : (queryEvent && typeof queryEvent.userOverride === 'string' && queryEvent.userOverride.trim()
+            ? queryEvent.userOverride.trim()
+            : (this.userSettingsManager && typeof this.userSettingsManager.getRoutingOverride === 'function'
+              ? this.userSettingsManager.getRoutingOverride()
+              : 'automatic'));
+        if (!result.userOverride) {
+          result.userOverride = userOverride;
+        }
+      }
+      return result;
+    }
+
+    /**
+     * Internal classification logic
+     * @private
+     */
+    _classify(queryEvent, options = {}) {
       const trace = [];
 
       if (!this.config.enabled) {
@@ -139,6 +171,16 @@
       }
       const taskCategory = taskSignal && taskSignal.category ? taskSignal.category : 'unknown';
 
+      // Resolve optional user routing override (defaults to 'automatic')
+      let userOverride = 'automatic';
+      if (options && typeof options.userOverride === 'string' && options.userOverride.trim()) {
+        userOverride = options.userOverride.trim();
+      } else if (queryEvent && typeof queryEvent.userOverride === 'string' && queryEvent.userOverride.trim()) {
+        userOverride = queryEvent.userOverride.trim();
+      } else if (this.userSettingsManager && typeof this.userSettingsManager.getRoutingOverride === 'function') {
+        userOverride = this.userSettingsManager.getRoutingOverride();
+      }
+
       // Iterate through configured rule precedence
       for (const ruleId of this.config.rulePrecedence) {
         switch (ruleId) {
@@ -156,10 +198,45 @@
                 matchedSignals: [optDecision.ruleId, 'LOCAL_ANSWER_CANDIDATE', `task:${taskCategory}`],
                 taskCategory,
                 taskSignal,
+                userOverride,
                 ruleTrace: trace
               };
             }
             trace.push('RULE_LOCAL_ELIGIBLE:PASS');
+
+            // If user explicitly configured prefer-simple, route non-local queries to simple-model candidate
+            if (userOverride === 'prefer-simple' && this.config.enabledRoutes[CoarseRoute.SIMPLE_MODEL_CANDIDATE]) {
+              trace.push('RULE_USER_OVERRIDE_PREFER_SIMPLE:MATCH');
+              return {
+                route: CoarseRoute.SIMPLE_MODEL_CANDIDATE,
+                ruleId: 'RULE_USER_OVERRIDE_PREFER_SIMPLE',
+                reasonCode: RoutingReasonCode.USER_OVERRIDE_PREFER_SIMPLE,
+                explanation: 'User override "prefer-simple" active; routed to simple-model candidate.',
+                confidence: 1.0,
+                matchedSignals: ['USER_OVERRIDE_PREFER_SIMPLE', `task:${taskCategory}`],
+                taskCategory,
+                taskSignal,
+                userOverride,
+                ruleTrace: trace
+              };
+            }
+
+            // If user explicitly configured prefer-strong, route non-local queries to complex-model candidate
+            if (userOverride === 'prefer-strong' && this.config.enabledRoutes[CoarseRoute.COMPLEX_MODEL_CANDIDATE]) {
+              trace.push('RULE_USER_OVERRIDE_PREFER_STRONG:MATCH');
+              return {
+                route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
+                ruleId: 'RULE_USER_OVERRIDE_PREFER_STRONG',
+                reasonCode: RoutingReasonCode.USER_OVERRIDE_PREFER_STRONG,
+                explanation: 'User override "prefer-strong" active; routed to complex-model candidate.',
+                confidence: 1.0,
+                matchedSignals: ['USER_OVERRIDE_PREFER_STRONG', `task:${taskCategory}`],
+                taskCategory,
+                taskSignal,
+                userOverride,
+                ruleTrace: trace
+              };
+            }
             break;
           }
 

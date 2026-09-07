@@ -158,4 +158,73 @@ assert.strictEqual(ErrorCategory.SERVER_ERROR, 'SERVER_ERROR');
 assert.strictEqual(ErrorCategory.CLIENT_ERROR, 'CLIENT_ERROR');
 console.log('PASS: Enums verified');
 
+// Test 8: Route, model version, latency, and failure category metadata
+console.log('Test 8: Execution metadata in performance telemetry...');
+const execMetaRecord = createPerformanceRecord({
+  correlationId: id1,
+  clientTimestamp: clientStart,
+  decisionType: 'NO_OPTIMIZATION',
+  coarseRoute: 'complex-model candidate',
+  modelVersion: 'gpt-4o-2024-08-06',
+  failureCategory: 'NONE',
+  latencyMs: 145.2,
+  executionLatencyMs: 130.55,
+  localFeatures: rawFeatures,
+  candidateCount: 1,
+  options: { environment: 'production' }
+});
+
+assert.strictEqual(execMetaRecord.coarse_route, 'complex-model candidate');
+assert.strictEqual(execMetaRecord.model_version, 'gpt-4o-2024-08-06');
+assert.strictEqual(execMetaRecord.failure_category, 'NONE');
+assert.strictEqual(execMetaRecord.execution_latency_ms, 130.55);
+assert.strictEqual(execMetaRecord.latency_ms, 145.2);
+
+const fallbackRecord = createPerformanceRecord({
+  correlationId: id2,
+  clientTimestamp: clientStart,
+  decisionType: 'NO_OPTIMIZATION',
+  coarseRoute: 'simple-model candidate',
+  modelVersion: null,
+  failureCategory: 'TIMEOUT',
+  latencyMs: 10005.0,
+  executionLatencyMs: 10001.2,
+  localFeatures: rawFeatures,
+  candidateCount: 0,
+  options: { environment: 'production' }
+});
+
+assert.strictEqual(fallbackRecord.coarse_route, 'simple-model candidate');
+assert.strictEqual(fallbackRecord.model_version, null);
+assert.strictEqual(fallbackRecord.failure_category, 'TIMEOUT');
+assert.strictEqual(fallbackRecord.execution_latency_ms, 10001.2);
+assert.strictEqual(fallbackRecord.escalation_occurred, false);
+assert.strictEqual(fallbackRecord.escalation_reason, null);
+console.log('PASS: Execution metadata in performance telemetry verified');
+
+// Test 9: Escalation metadata tracking
+console.log('Test 9: Escalation metadata tracking...');
+const escalatedRecord = createPerformanceRecord({
+  correlationId: id1,
+  clientTimestamp: clientStart,
+  decisionType: 'NO_OPTIMIZATION',
+  coarseRoute: 'simple-model candidate',
+  modelVersion: 'gpt-4o-2024-08-06',
+  failureCategory: 'NONE',
+  latencyMs: 350.5,
+  executionLatencyMs: 310.2,
+  escalationOccurred: true,
+  escalationReason: 'Evaluator recommended escalation: unclosed code block',
+  localFeatures: rawFeatures,
+  candidateCount: 1,
+  options: { environment: 'production' }
+});
+
+assert.strictEqual(escalatedRecord.escalation_occurred, true);
+assert.strictEqual(escalatedRecord.escalation_reason, 'Evaluator recommended escalation: unclosed code block');
+assert.strictEqual(escalatedRecord.model_version, 'gpt-4o-2024-08-06');
+console.log('PASS: Escalation metadata tracking verified');
+
 console.log('--- ALL TELEMETRY & CORRELATION ID TESTS PASSED ---');
+
+

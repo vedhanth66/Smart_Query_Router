@@ -55,6 +55,8 @@
   const complexityScorerModule = globalThis.SmartQueryRouterComplexityScorer || null;
   const routingPolicyModule = globalThis.SmartQueryRouterRoutingPolicy || null;
   const routingPolicy = routingPolicyModule ? routingPolicyModule.defaultRoutingPolicy : null;
+  const userSettingsModule = globalThis.SmartQueryRouterUserSettings || null;
+  const userSettingsManager = userSettingsModule ? userSettingsModule.defaultUserSettingsManager : null;
 
   // Register deterministic rule plugins if available
   if (decisionEngine) {
@@ -287,9 +289,11 @@
 
     // Deterministic Routing Policy: classify into coarse routes
     let routingClassification = null;
+    const activeOverride = userSettingsManager ? userSettingsManager.getRoutingOverride() : 'automatic';
     if (routingPolicy && latestTransientQueryEvent) {
-      routingClassification = routingPolicy.classify(latestTransientQueryEvent);
+      routingClassification = routingPolicy.classify(latestTransientQueryEvent, { userOverride: activeOverride });
       latestTransientQueryEvent.routing = routingClassification;
+      latestTransientQueryEvent.userOverride = activeOverride;
 
       if (logger) {
         logger.info(
@@ -299,7 +303,8 @@
             route: routingClassification.route,
             ruleId: routingClassification.ruleId,
             reasonCode: routingClassification.reasonCode,
-            confidence: routingClassification.confidence
+            confidence: routingClassification.confidence,
+            userOverride: activeOverride
           }
         );
       }
@@ -308,7 +313,7 @@
     // Produce sanitized summary safe for diagnostics/logging (zero raw prompt text)
     const safeSummary = (queryEventModule && latestTransientQueryEvent)
       ? queryEventModule.toSafeSummary(latestTransientQueryEvent)
-      : { prompt_length: promptText.length, trigger: triggerSource };
+      : { prompt_length: promptText.length, trigger: triggerSource, userOverride: activeOverride };
 
     if (logger) {
       logger.info(
@@ -331,6 +336,7 @@
           ? latestTransientQueryEvent.metadata.eventId
           : `req_${now}_${Math.random().toString(36).slice(2, 6)}`,
         correlation_id: correlationId,
+        user_override: activeOverride,
         coarse_route: routingClassification ? routingClassification.route : null,
         task_category: (latestTransientQueryEvent && latestTransientQueryEvent.taskClassification)
           ? latestTransientQueryEvent.taskClassification.category
@@ -372,17 +378,31 @@
 
         // Construct telemetry performance record (strictly sanitized, zero raw query text)
         if (telemetryModule && latestTransientQueryEvent) {
+          const execMeta = decisionData && decisionData.execution_metadata ? decisionData.execution_metadata : null;
+          const executedRoute = (execMeta && execMeta.route) || (decisionData && decisionData.coarse_route) || null;
+          const modelVersion = execMeta ? execMeta.model_version : null;
+          const failureCategory = execMeta ? execMeta.failure_category : 'NONE';
+          const executionLatencyMs = execMeta ? execMeta.latency_ms : null;
+          const escalationOccurred = execMeta ? Boolean(execMeta.escalation_occurred) : false;
+          const escalationReason = execMeta ? execMeta.escalation_reason : null;
+
           const perfRecord = telemetryModule.createPerformanceRecord({
             correlationId: (decisionData && decisionData.correlation_id) || correlationId,
             clientTimestamp: clientStartMs,
             backendTimestamp: decisionData ? decisionData.timestamp : null,
             decisionType: decisionData ? decisionData.decision_type : 'NO_OPTIMIZATION',
+            coarseRoute: executedRoute,
             modelRoute: decisionData ? decisionData.model_route : null,
+            modelVersion: modelVersion,
             cacheOutcome: (decisionData && decisionData.cache_outcome) || telemetryModule.CacheOutcome.NOT_CHECKED,
             latencyMs: clientLatencyMs,
+            executionLatencyMs: executionLatencyMs,
             errorCategory: response && !response.success
               ? (response.errorCategory || telemetryModule.ErrorCategory.NETWORK_ERROR)
               : telemetryModule.ErrorCategory.NONE,
+            failureCategory: failureCategory,
+            escalationOccurred: escalationOccurred,
+            escalationReason: escalationReason,
             localFeatures: latestTransientQueryEvent.features,
             candidateCount: (candidateContextPackage && candidateContextPackage.includedTurns)
               ? candidateContextPackage.includedTurns.length
@@ -404,8 +424,13 @@
                 correlation_id: perfRecord.correlation_id,
                 latency_ms: perfRecord.latency_ms,
                 decision_type: perfRecord.decision_type,
+                coarse_route: perfRecord.coarse_route,
+                model_version: perfRecord.model_version,
+                failure_category: perfRecord.failure_category,
                 cache_outcome: perfRecord.cache_outcome,
-                error_category: perfRecord.error_category
+                error_category: perfRecord.error_category,
+                escalation_occurred: perfRecord.escalation_occurred,
+                escalation_reason: perfRecord.escalation_reason
               }
             );
           }
