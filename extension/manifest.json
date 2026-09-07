@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Query Router",
+  "version": "0.1.0",
+  "description": "Autonomous query routing and context optimization for Claude.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "src/shared/messages.js",
+        "src/shared/logger.js",
+        "src/shared/normalizer.js",
+        "src/shared/feature_extractor.js",
+        "src/shared/context_detector.js",
+        "src/shared/query_event.js",
+        "src/shared/deduplicator.js",
+        "src/shared/decision_engine.js",
+        "src/rules/arithmetic_rule.js",
+        "src/rules/datetime_rule.js",
+        "src/rules/greeting_rule.js",
+        "src/shared/turn_tracker.js",
+        "src/content/claude_interceptor.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
