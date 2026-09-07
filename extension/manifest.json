@@ -7,7 +7,9 @@
     "storage"
   ],
   "host_permissions": [
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
   ],
   "background": {
     "service_worker": "src/background/service_worker.js"
@@ -23,6 +25,9 @@
         "src/shared/normalizer.js",
         "src/shared/feature_extractor.js",
         "src/shared/context_detector.js",
+        "src/shared/task_classifier.js",
+        "src/shared/complexity_scorer_config.js",
+        "src/shared/complexity_scorer.js",
         "src/shared/query_event.js",
         "src/shared/deduplicator.js",
         "src/shared/decision_engine.js",
@@ -30,6 +35,13 @@
         "src/rules/datetime_rule.js",
         "src/rules/greeting_rule.js",
         "src/shared/turn_tracker.js",
+        "src/shared/relevance_ranker.js",
+        "src/shared/context_packager.js",
+        "src/shared/experimental_summarizer.js",
+        "src/shared/backend_client.js",
+        "src/shared/telemetry.js",
+        "src/shared/routing_policy_config.js",
+        "src/shared/routing_policy.js",
         "src/content/claude_interceptor.js"
       ],
       "run_at": "document_idle"

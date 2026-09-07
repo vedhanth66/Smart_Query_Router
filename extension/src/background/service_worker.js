@@ -7,7 +7,14 @@
 // Import shared modules
 importScripts('/src/shared/messages.js');
 importScripts('/src/shared/logger.js');
+importScripts('/src/shared/telemetry.js');
+importScripts('/src/shared/task_classifier.js');
+importScripts('/src/shared/complexity_scorer_config.js');
+importScripts('/src/shared/complexity_scorer.js');
+importScripts('/src/shared/routing_policy_config.js');
+importScripts('/src/shared/routing_policy.js');
 importScripts('/src/background/health_tracker.js');
+importScripts('/src/shared/backend_client.js');
 
 const EXTENSION_NAME = 'Smart Query Router';
 const EXTENSION_VERSION = '0.1.0';
@@ -30,7 +37,12 @@ const {
   HealthTracker
 } = self.SmartQueryRouterHealth;
 
+const {
+  BackendClient
+} = self.SmartQueryRouterBackendClient;
+
 const healthTracker = new HealthTracker();
+const backendClient = new BackendClient({ logger, storage: chrome.storage.local });
 
 // Log startup event (recorded in ring buffer, quiet in console by default unless WARN/ERROR)
 logger.info(EventCategory.STARTUP, 'Service worker active', { version: EXTENSION_VERSION });
@@ -139,6 +151,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
       sendResponse(createSuccessResponse({ observed: true }));
       return false;
+
+    case MessageTypes.OPTIMIZE_REQUEST:
+      backendClient.optimizeQuery(message.payload.package)
+        .then((decision) => {
+          sendResponse(createSuccessResponse(decision));
+        })
+        .catch((err) => {
+          sendResponse(createSuccessResponse(
+            self.SmartQueryRouterBackendClient.createFailOpenDecision(
+              message.payload.package ? message.payload.package.request_id : null,
+              err.message,
+              message.payload.package ? message.payload.package.correlation_id : null
+            )
+          ));
+        });
+      return true; // Keep channel open for async response
 
     default:
       sendResponse(createErrorResponse(ErrorCodes.UNKNOWN_MESSAGE_TYPE, 'Unknown message type'));

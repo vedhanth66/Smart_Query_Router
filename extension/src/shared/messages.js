@@ -22,7 +22,8 @@
     TEST_EVENT: 'ROUTER_TEST_EVENT',
     HEALTH_CHECK: 'ROUTER_HEALTH_CHECK',
     DIAGNOSTICS_REQUEST: 'ROUTER_DIAGNOSTICS_REQUEST',
-    QUERY_OBSERVED: 'ROUTER_QUERY_OBSERVED'
+    QUERY_OBSERVED: 'ROUTER_QUERY_OBSERVED',
+    OPTIMIZE_REQUEST: 'ROUTER_OPTIMIZE_REQUEST'
   });
 
   const ErrorCodes = Object.freeze({
@@ -120,6 +121,16 @@
           };
         }
         break;
+
+      case MessageTypes.OPTIMIZE_REQUEST:
+        if (!payload.package || typeof payload.package !== 'object') {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'OPTIMIZE_REQUEST requires non-null object "package"'
+          };
+        }
+        break;
     }
 
     return { valid: true };
@@ -177,6 +188,14 @@
     };
   }
 
+  function createOptimizeRequestMessage(queryPackage) {
+    return {
+      type: MessageTypes.OPTIMIZE_REQUEST,
+      timestamp: Date.now(),
+      payload: { package: queryPackage || {} }
+    };
+  }
+
   // Helper response creators
   function createSuccessResponse(data) {
     return {
@@ -205,6 +224,7 @@
     createHealthCheckMessage,
     createDiagnosticsRequestMessage,
     createQueryObservedMessage,
+    createOptimizeRequestMessage,
     createSuccessResponse,
     createErrorResponse
   };

@@ -155,6 +155,23 @@
     }
 
     /**
+     * Helper to classify an event using a DeterministicRoutingPolicy
+     * @param {object} queryEvent
+     * @param {object} [routingPolicy]
+     * @returns {object|null} RoutingClassification
+     */
+    classifyRouting(queryEvent, routingPolicy = null) {
+      const policy = routingPolicy ||
+        (typeof globalThis !== 'undefined' && globalThis.SmartQueryRouterRoutingPolicy
+          ? globalThis.SmartQueryRouterRoutingPolicy.defaultRoutingPolicy
+          : null);
+      if (policy && typeof policy.classify === 'function') {
+        return policy.classify(queryEvent);
+      }
+      return null;
+    }
+
+    /**
      * Reset registered rules
      */
     reset() {

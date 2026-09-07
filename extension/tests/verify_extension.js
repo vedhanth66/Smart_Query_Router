@@ -48,11 +48,19 @@ console.log('PASS: Permissions strictly minimal:', permissions);
 
 // 4. Validate host permissions scope
 const hostPermissions = manifest.host_permissions || [];
-if (hostPermissions.length !== 1 || hostPermissions[0] !== 'https://claude.ai/*') {
-  console.error('FAIL: host_permissions must be narrowly scoped to https://claude.ai/*, found:', hostPermissions);
+const allowedHostPatterns = [
+  'https://claude.ai/*',
+  'http://127.0.0.1:8000/*',
+  'http://localhost:8000/*'
+];
+const allAllowed = hostPermissions.length > 0 &&
+  hostPermissions.every(p => allowedHostPatterns.includes(p)) &&
+  hostPermissions.includes('https://claude.ai/*');
+if (!allAllowed) {
+  console.error('FAIL: host_permissions must be scoped to claude.ai and backend endpoints, found:', hostPermissions);
   process.exit(1);
 }
-console.log('PASS: Host permissions narrowly scoped to claude.ai');
+console.log('PASS: Host permissions narrowly scoped to claude.ai and backend endpoints');
 
 // 5. Validate background service worker
 if (!manifest.background || !manifest.background.service_worker) {

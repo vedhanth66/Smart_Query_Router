@@ -48,6 +48,11 @@ const queryObsMsg = messages.createQueryObservedMessage(42, 'keyboard');
 assert.strictEqual(queryObsMsg.type, MessageTypes.QUERY_OBSERVED);
 assert.strictEqual(queryObsMsg.payload.prompt_length, 42);
 assert.strictEqual(validateMessage(queryObsMsg).valid, true);
+
+const optMsg = messages.createOptimizeRequestMessage({ request_id: 'req_1', query_text: 'hello' });
+assert.strictEqual(optMsg.type, MessageTypes.OPTIMIZE_REQUEST);
+assert.strictEqual(optMsg.payload.package.request_id, 'req_1');
+assert.strictEqual(validateMessage(optMsg).valid, true);
 console.log('PASS: Valid factory messages verified');
 
 // Test 2: Reject non-object or null messages

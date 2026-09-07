@@ -11,6 +11,8 @@
     let normalizer = null;
     let featureExtractor = null;
     let contextDetector = null;
+    let taskClassifier = null;
+    let complexityScorer = null;
     try {
       normalizer = require('./normalizer');
     } catch (_) {}
@@ -20,14 +22,22 @@
     try {
       contextDetector = require('./context_detector');
     } catch (_) {}
-    module.exports = factory(normalizer, featureExtractor, contextDetector);
+    try {
+      taskClassifier = require('./task_classifier');
+    } catch (_) {}
+    try {
+      complexityScorer = require('./complexity_scorer');
+    } catch (_) {}
+    module.exports = factory(normalizer, featureExtractor, contextDetector, taskClassifier, complexityScorer);
   } else {
     const normalizer = root.SmartQueryRouterNormalizer || null;
     const featureExtractor = root.SmartQueryRouterFeatureExtractor || null;
     const contextDetector = root.SmartQueryRouterContextDetector || null;
-    root.SmartQueryRouterQueryEvent = factory(normalizer, featureExtractor, contextDetector);
+    const taskClassifier = root.SmartQueryRouterTaskClassifier || null;
+    const complexityScorer = root.SmartQueryRouterComplexityScorer || null;
+    root.SmartQueryRouterQueryEvent = factory(normalizer, featureExtractor, contextDetector, taskClassifier, complexityScorer);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (normalizerModule, featureExtractorModule, contextDetectorModule) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (normalizerModule, featureExtractorModule, contextDetectorModule, taskClassifierModule, complexityScorerModule) {
   'use strict';
 
   // Common patterns indicating potential credentials or secrets in user input
@@ -97,7 +107,7 @@
    * @param {string} params.triggerType - 'keyboard_enter' | 'button_click' | 'unknown'
    * @param {object} [params.context] - Safe page context
    */
-  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {} }) {
+  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {}, correlationId = null }) {
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).slice(2, 9);
     const eventId = `evt_${timestamp}_${randomSuffix}`;
@@ -121,10 +131,26 @@
       ? contextDetectorModule.detectContextDependency(normalized || raw, features)
       : null;
 
+    // Conservative task classification signal (strictly does NOT select models; supplies intent signal)
+    const taskClassification = taskClassifierModule && taskClassifierModule.defaultTaskClassifier
+      ? taskClassifierModule.defaultTaskClassifier.classifyTask(normalized || raw, features, contextDependency)
+      : null;
+
+    // Initial complexity score (indicative heuristic signal with explanation, not ground truth)
+    const complexity = complexityScorerModule && complexityScorerModule.defaultComplexityScorer
+      ? complexityScorerModule.defaultComplexityScorer.computeScore({
+          promptText: normalized || raw,
+          localFeatures: features,
+          contextDependency,
+          taskClassification
+        })
+      : null;
+
     return {
       // 1. System and event metadata
       metadata: {
         eventId,
+        correlationId: correlationId || null,
         timestamp,
         triggerType,
         schemaVersion: '1.0'
@@ -160,7 +186,13 @@
       // 6. First-pass context-dependency assessment (decision on whether context analysis is needed)
       contextDependency,
 
-      // 7. Placeholders for upcoming optimization decisions
+      // 7. Stable task classification signal (supplies task intent without selecting a model)
+      taskClassification,
+
+      // 8. Initial complexity score signal with factor explanation
+      complexity,
+
+      // 9. Placeholders for upcoming optimization decisions
       optimization: {
         status: 'PENDING',         // 'PENDING' | 'EVALUATED' | 'SKIPPED'
         decision: null,            // Future: 'PASS_THROUGH' | 'OPTIMIZE' | 'USE_CACHE'
@@ -169,7 +201,10 @@
         optimizedPrompt: null,     // Future: trimmed or rewritten prompt text
         tokenSavingsEstimate: 0,   // Future: estimated tokens saved
         applied: false             // Whether an optimization was applied to the DOM
-      }
+      },
+
+      // 10. Deterministic routing policy classification
+      routing: null
     };
   }
 
@@ -184,6 +219,7 @@
 
     return {
       eventId: queryEvent.metadata.eventId,
+      correlationId: queryEvent.metadata.correlationId || null,
       timestamp: queryEvent.metadata.timestamp,
       triggerType: queryEvent.metadata.triggerType,
       conversationId: queryEvent.context ? queryEvent.context.conversationId : null,
@@ -205,7 +241,11 @@
         hasComparisonCue: queryEvent.features.cues ? queryEvent.features.cues.hasComparisonCue : false,
         hasReasoningCue: queryEvent.features.cues ? queryEvent.features.cues.hasReasoningCue : false
       } : null,
-      optimizationStatus: queryEvent.optimization ? queryEvent.optimization.status : 'PENDING'
+      optimizationStatus: queryEvent.optimization ? queryEvent.optimization.status : 'PENDING',
+      coarseRoute: queryEvent.routing ? queryEvent.routing.route : null,
+      taskCategory: queryEvent.taskClassification ? queryEvent.taskClassification.category : (queryEvent.routing ? queryEvent.routing.taskCategory : 'unknown'),
+      complexityScore: queryEvent.complexity ? queryEvent.complexity.score : null,
+      complexityLevel: queryEvent.complexity ? queryEvent.complexity.level : null
     };
   }
 
@@ -243,12 +283,24 @@
       return { valid: false, error: 'contextDependency partition must be an object' };
     }
 
+    if (evt.taskClassification !== undefined && evt.taskClassification !== null && typeof evt.taskClassification !== 'object') {
+      return { valid: false, error: 'taskClassification partition must be an object' };
+    }
+
+    if (evt.complexity !== undefined && evt.complexity !== null && typeof evt.complexity !== 'object') {
+      return { valid: false, error: 'complexity partition must be an object' };
+    }
+
     if (!evt.privacy || typeof evt.privacy.level !== 'string' || !Array.isArray(evt.privacy.flags)) {
       return { valid: false, error: 'Invalid or missing privacy classification' };
     }
 
     if (!evt.optimization || typeof evt.optimization.status !== 'string') {
       return { valid: false, error: 'Invalid or missing optimization placeholders' };
+    }
+
+    if (evt.routing !== undefined && evt.routing !== null && typeof evt.routing !== 'object') {
+      return { valid: false, error: 'Routing partition must be an object' };
     }
 
     return { valid: true };

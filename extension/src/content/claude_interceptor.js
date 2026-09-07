@@ -28,6 +28,15 @@
   const featureExtractorModule = globalThis.SmartQueryRouterFeatureExtractor || null;
   const contextDetectorModule = globalThis.SmartQueryRouterContextDetector || null;
   const turnTrackerModule = globalThis.SmartQueryRouterTurnTracker || null;
+  const relevanceRankerModule = globalThis.SmartQueryRouterRelevanceRanker || null;
+  const contextPackagerModule = globalThis.SmartQueryRouterContextPackager || null;
+  const experimentalSummarizerModule = globalThis.SmartQueryRouterExperimentalSummarizer || null;
+  const telemetryModule = globalThis.SmartQueryRouterTelemetry || null;
+  // Experimental flags: disabled by default and strictly locked to production mode
+  const experimentalConfig = {
+    enabled: false,
+    environment: 'production'
+  };
   const turnTracker = turnTrackerModule ? new turnTrackerModule.RecentTurnsTracker({
     maxTurns: 4,
     maxSnippetChars: 300
@@ -40,6 +49,12 @@
   const arithmeticModule = globalThis.SmartQueryRouterArithmetic || null;
   const dateTimeModule = globalThis.SmartQueryRouterDateTime || null;
   const greetingModule = globalThis.SmartQueryRouterGreeting || null;
+  const routingPolicyConfigModule = globalThis.SmartQueryRouterRoutingPolicyConfig || null;
+  const taskClassifierModule = globalThis.SmartQueryRouterTaskClassifier || null;
+  const complexityScorerConfigModule = globalThis.SmartQueryRouterComplexityScorerConfig || null;
+  const complexityScorerModule = globalThis.SmartQueryRouterComplexityScorer || null;
+  const routingPolicyModule = globalThis.SmartQueryRouterRoutingPolicy || null;
+  const routingPolicy = routingPolicyModule ? routingPolicyModule.defaultRoutingPolicy : null;
 
   // Register deterministic rule plugins if available
   if (decisionEngine) {
@@ -58,6 +73,7 @@
     MessageTypes,
     createInitMessage,
     createQueryObservedMessage,
+    createOptimizeRequestMessage,
     createSuccessResponse
   } = msgProtocol;
 
@@ -176,6 +192,70 @@
       lastObservedTimestamp = now;
     }
 
+    // Generate correlation ID spanning client observation and backend routing
+    const correlationId = telemetryModule
+      ? telemetryModule.generateCorrelationId()
+      : `corr_${now}_${Math.random().toString(36).slice(2, 9)}`;
+
+    // Construct the typed in-memory query event structure
+    if (queryEventModule) {
+      latestTransientQueryEvent = queryEventModule.createDetectedQueryEvent({
+        rawPrompt: promptText,
+        triggerType: triggerSource,
+        context: safeContext,
+        correlationId
+      });
+    }
+
+    // Rank recent conversation turns by relevance before recording current turn
+    let contextRelevance = null;
+    if (relevanceRankerModule && turnTracker && turnTracker.getTurnCount() > 0) {
+      const contextDep = latestTransientQueryEvent ? latestTransientQueryEvent.contextDependency : null;
+      contextRelevance = relevanceRankerModule.rankTurnsByRelevance(
+        promptText,
+        turnTracker.getRecentTurns(),
+        { contextDependency: contextDep }
+      );
+      if (latestTransientQueryEvent) {
+        latestTransientQueryEvent.contextRelevance = contextRelevance;
+      }
+    }
+
+    // Decide context eligibility and produce internal candidate context package (does not modify Claude input)
+    let candidateContextPackage = null;
+    if (contextPackagerModule && turnTracker && turnTracker.getTurnCount() > 0) {
+      const contextDep = latestTransientQueryEvent ? latestTransientQueryEvent.contextDependency : null;
+      candidateContextPackage = contextPackagerModule.buildCandidateContextPackage({
+        queryText: promptText,
+        recentTurns: turnTracker.getRecentTurns(),
+        contextRelevance,
+        contextDependency: contextDep
+      });
+      if (latestTransientQueryEvent) {
+        latestTransientQueryEvent.candidateContextPackage = candidateContextPackage;
+      }
+
+      // Disabled-by-default experimental path: compare direct selection vs local summarization
+      if (
+        experimentalSummarizerModule &&
+        candidateContextPackage &&
+        candidateContextPackage.includedTurns.length > 0 &&
+        experimentalSummarizerModule.isExperimentalSummarizationAllowed(experimentalConfig)
+      ) {
+        const expResult = experimentalSummarizerModule.evaluateExperimentalPath({
+          directCandidatePackage: candidateContextPackage,
+          config: experimentalConfig
+        });
+        if (expResult && logger) {
+          logger.info(
+            EventCategory.EXPERIMENTAL_METRICS,
+            'Experimental context comparison metrics evaluated',
+            expResult.telemetry
+          );
+        }
+      }
+    }
+
     // Record user turn in bounded in-memory tracker (zero persistence, local only)
     if (turnTracker) {
       turnTracker.recordTurn({
@@ -186,31 +266,42 @@
       });
     }
 
-    // Construct the typed in-memory query event structure
-    if (queryEventModule) {
-      latestTransientQueryEvent = queryEventModule.createDetectedQueryEvent({
-        rawPrompt: promptText,
-        triggerType: triggerSource,
-        context: safeContext
-      });
+    // Evaluate optimization decision interface
+    if (decisionEngine && latestTransientQueryEvent) {
+      const decision = decisionEngine.evaluate(latestTransientQueryEvent);
+      latestTransientQueryEvent.optimization.status = 'EVALUATED';
+      latestTransientQueryEvent.optimization.decision = decision;
 
-      // Evaluate optimization decision interface
-      if (decisionEngine) {
-        const decision = decisionEngine.evaluate(latestTransientQueryEvent);
-        latestTransientQueryEvent.optimization.status = 'EVALUATED';
-        latestTransientQueryEvent.optimization.decision = decision;
+      if (logger) {
+        logger.info(
+          EventCategory.OPTIMIZATION_DECISION,
+          'Optimization decision evaluated',
+          {
+            outcome: decision.outcome,
+            ruleId: decision.ruleId,
+            reason: decision.reason
+          }
+        );
+      }
+    }
 
-        if (logger) {
-          logger.info(
-            EventCategory.OPTIMIZATION_DECISION,
-            'Optimization decision evaluated',
-            {
-              outcome: decision.outcome,
-              ruleId: decision.ruleId,
-              reason: decision.reason
-            }
-          );
-        }
+    // Deterministic Routing Policy: classify into coarse routes
+    let routingClassification = null;
+    if (routingPolicy && latestTransientQueryEvent) {
+      routingClassification = routingPolicy.classify(latestTransientQueryEvent);
+      latestTransientQueryEvent.routing = routingClassification;
+
+      if (logger) {
+        logger.info(
+          EventCategory.OPTIMIZATION_DECISION,
+          'Deterministic coarse route classified',
+          {
+            route: routingClassification.route,
+            ruleId: routingClassification.ruleId,
+            reasonCode: routingClassification.reasonCode,
+            confidence: routingClassification.confidence
+          }
+        );
       }
     }
 
@@ -232,6 +323,95 @@
       triggerSource
     );
     sendTypedMessage(observedMsg);
+
+    // Asynchronously dispatch optimization package to backend via service worker (fail-open)
+    if (createOptimizeRequestMessage) {
+      const queryPackage = {
+        request_id: (latestTransientQueryEvent && latestTransientQueryEvent.metadata)
+          ? latestTransientQueryEvent.metadata.eventId
+          : `req_${now}_${Math.random().toString(36).slice(2, 6)}`,
+        correlation_id: correlationId,
+        coarse_route: routingClassification ? routingClassification.route : null,
+        task_category: (latestTransientQueryEvent && latestTransientQueryEvent.taskClassification)
+          ? latestTransientQueryEvent.taskClassification.category
+          : (routingClassification ? routingClassification.taskCategory : null),
+        complexity_score: (latestTransientQueryEvent && latestTransientQueryEvent.complexity)
+          ? latestTransientQueryEvent.complexity.score
+          : null,
+        complexity_level: (latestTransientQueryEvent && latestTransientQueryEvent.complexity)
+          ? latestTransientQueryEvent.complexity.level
+          : null,
+        query_text: promptText,
+        context_candidates: (candidateContextPackage && candidateContextPackage.includedTurns)
+          ? candidateContextPackage.includedTurns.slice(0, 10).map((t) => ({
+              turn_id: t.turnId,
+              role: t.role,
+              content: t.content,
+              original_index: t.originalIndex,
+              relevance_score: t.relevanceScore || 0.0,
+              timestamp: t.timestamp
+            }))
+          : [],
+        local_features: latestTransientQueryEvent ? latestTransientQueryEvent.features : null,
+        client_metadata: {
+          extension_version: '0.1.0',
+          client_type: 'chrome_extension',
+          schema_version: '1.0',
+          hostname: window.location.hostname || 'claude.ai'
+        }
+      };
+
+      const optMsg = createOptimizeRequestMessage(queryPackage);
+      const clientStartMs = now;
+      sendTypedMessage(optMsg, (response) => {
+        const clientLatencyMs = Date.now() - clientStartMs;
+        const decisionData = response && response.data ? response.data : null;
+        if (latestTransientQueryEvent && decisionData) {
+          latestTransientQueryEvent.backendOptimization = decisionData;
+        }
+
+        // Construct telemetry performance record (strictly sanitized, zero raw query text)
+        if (telemetryModule && latestTransientQueryEvent) {
+          const perfRecord = telemetryModule.createPerformanceRecord({
+            correlationId: (decisionData && decisionData.correlation_id) || correlationId,
+            clientTimestamp: clientStartMs,
+            backendTimestamp: decisionData ? decisionData.timestamp : null,
+            decisionType: decisionData ? decisionData.decision_type : 'NO_OPTIMIZATION',
+            modelRoute: decisionData ? decisionData.model_route : null,
+            cacheOutcome: (decisionData && decisionData.cache_outcome) || telemetryModule.CacheOutcome.NOT_CHECKED,
+            latencyMs: clientLatencyMs,
+            errorCategory: response && !response.success
+              ? (response.errorCategory || telemetryModule.ErrorCategory.NETWORK_ERROR)
+              : telemetryModule.ErrorCategory.NONE,
+            localFeatures: latestTransientQueryEvent.features,
+            candidateCount: (candidateContextPackage && candidateContextPackage.includedTurns)
+              ? candidateContextPackage.includedTurns.length
+              : 0,
+            versionIdentifiers: {
+              extension: '0.1.0',
+              server: '0.1.0',
+              schema: '1.0'
+            },
+            options: experimentalConfig // strictly production by default
+          });
+          latestTransientQueryEvent.performanceRecord = perfRecord;
+
+          if (logger) {
+            logger.info(
+              EventCategory.BACKEND_CALL || 'BACKEND_CALL',
+              'Optimization performance record recorded',
+              {
+                correlation_id: perfRecord.correlation_id,
+                latency_ms: perfRecord.latency_ms,
+                decision_type: perfRecord.decision_type,
+                cache_outcome: perfRecord.cache_outcome,
+                error_category: perfRecord.error_category
+              }
+            );
+          }
+        }
+      });
+    }
   }
 
   /**
