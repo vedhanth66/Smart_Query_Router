@@ -1,0 +1,71 @@
+# Prometheus Alerting Rules for Smart Query Router
+# Policy: Alerts must represent strictly actionable conditions with unambiguous runbooks.
+# Transient blips, single-query errors, and normal traffic fluctuations do NOT alert.
+
+groups:
+  - name: smart_query_router_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: smart_query_router_error_rate_ratio > 0.02
+        for: 5m
+        labels:
+          severity: critical
+          service: smart-query-router-backend
+          team: platform-core
+        annotations:
+          summary: "Smart Query Router error rate exceeds 2% threshold"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes. Upstream model providers or gateway adapters may be failing."
+          runbook_url: "https://wiki.corp.internal/runbooks/sqr-high-error-rate"
+          action: "1. Check error categories in `smart_query_router_errors_total`. 2. Verify provider API keys, quotas, and third-party status. 3. Inspect pod logs for network timeouts."
+
+      - alert: HighEscalationRate
+        expr: smart_query_router_escalation_rate_ratio > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          service: smart-query-router-backend
+          team: ml-routing
+        annotations:
+          summary: "Smart Query Router escalation rate exceeds 15% threshold"
+          description: "Escalation rate is {{ $value | humanizePercentage }} over 10m. Small model routing decisions are frequently rejected by the evaluator."
+          runbook_url: "https://wiki.corp.internal/runbooks/sqr-high-escalation-rate"
+          action: "1. Review breakdown in `smart_query_router_escalations_total`. 2. Check for task type drift towards complex reasoning/coding. 3. Engage rollout emergency kill switch or trigger automated cohort rollback."
+
+      - alert: HighP95Latency
+        expr: smart_query_router_request_duration_ms{quantile="0.95"} > 2500
+        for: 5m
+        labels:
+          severity: warning
+          service: smart-query-router-backend
+          team: platform-core
+        annotations:
+          summary: "Smart Query Router P95 latency exceeds 2500ms threshold"
+          description: "P95 request latency has reached {{ $value }}ms over the last 5 minutes. In-flight queue backlog or provider degradation detected."
+          runbook_url: "https://wiki.corp.internal/runbooks/sqr-high-p95-latency"
+          action: "1. Check `http_requests_in_flight` and queue depth. 2. Verify HPA autoscaling replicas have expanded. 3. Inspect upstream model provider streaming latency."
+
+      - alert: ServiceReadinessDegraded
+        expr: smart_query_router_subsystem_health == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: smart-query-router-backend
+          team: platform-core
+        annotations:
+          summary: "Smart Query Router subsystem readiness probe degraded"
+          description: "Subsystem {{ $labels.subsystem }} has reported unready for more than 1 minute."
+          runbook_url: "https://wiki.corp.internal/runbooks/sqr-subsystem-degraded"
+          action: "1. Query GET /readyz for specific component failure message. 2. Verify cache and gateway memory utilization. 3. Restart container or cycle pod if unrecoverable."
+
+      - alert: CostSavingsInversion
+        expr: smart_query_router_cost_savings_usd_total <= 0 and smart_query_router_requests_total > 50
+        for: 15m
+        labels:
+          severity: warning
+          service: smart-query-router-backend
+          team: ml-routing
+        annotations:
+          summary: "Smart Query Router cost savings inverted (spending more than saving)"
+          description: "Cumulative net savings is <= $0 USD after > 50 requests. Router evaluation overhead or excessive escalations are consuming more cost than saved."
+          runbook_url: "https://wiki.corp.internal/runbooks/sqr-cost-inversion"
+          action: "1. Inspect route distribution across local/simple/complex. 2. Compare small model costs plus escalation re-runs against baseline. 3. Adjust classification threshold or rollback canary rollout."

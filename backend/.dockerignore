@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files and credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Test and development assets
+tests/
+scratch/
+.system_generated/
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

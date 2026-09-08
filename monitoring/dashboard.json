@@ -1,0 +1,692 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Executive Summary: Are We Saving Work Without Degrading User Experience?",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.0001 }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "smart_query_router_cost_savings_usd_total",
+          "legendFormat": "Net Savings ($)",
+          "refId": "A"
+        }
+      ],
+      "title": "Net Financial Savings (USD)",
+      "description": "Cumulative dollars saved compared to always sending queries to strong model.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 1000 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_tokens_saved_total{type=\"total\"}",
+          "legendFormat": "Tokens Saved",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Tokens Saved",
+      "description": "Total prompt and completion tokens saved via compression, cache hits, and local routing.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "green", "value": 40 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_cost_savings_ratio * 100",
+          "legendFormat": "Savings %",
+          "refId": "A"
+        }
+      ],
+      "title": "Cost Reduction Ratio",
+      "description": "Percentage of cost saved relative to baseline expenditure.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1500 },
+              { "color": "red", "value": 2500 }
+            ]
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_request_duration_ms{quantile=\"0.95\"}",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Request Latency",
+      "description": "95th percentile request latency. Critical UX SLA: < 2500ms.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 15 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_escalation_rate_ratio * 100",
+          "legendFormat": "Escalation Rate",
+          "refId": "A"
+        }
+      ],
+      "title": "Escalation Rate",
+      "description": "Percentage of small-model queries requiring strong model re-run. UX threshold: <= 15%.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_error_rate_ratio * 100",
+          "legendFormat": "Error Rate",
+          "refId": "A"
+        }
+      ],
+      "title": "System Error Rate",
+      "description": "Rolling error rate percentage across recent requests. UX threshold: <= 2%.",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Section 1: Are We Saving Work? (Cost, Tokens, Cache, and Route Offload)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_baseline_cost_usd_total",
+          "legendFormat": "Baseline Cost (Strong-Only)",
+          "refId": "A"
+        },
+        {
+          "expr": "smart_query_router_actual_cost_usd_total",
+          "legendFormat": "Actual Incurred Cost (Routed)",
+          "refId": "B"
+        },
+        {
+          "expr": "smart_query_router_cost_savings_usd_total",
+          "legendFormat": "Net Dollars Saved",
+          "refId": "C"
+        }
+      ],
+      "title": "Cumulative Cost Comparison: Baseline vs Actual Routed ($ USD)",
+      "description": "Answers whether the router spends less money than an unoptimized strong-only configuration.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_tokens_saved_total{type=\"input_compression\"}",
+          "legendFormat": "Input Compression Savings",
+          "refId": "A"
+        },
+        {
+          "expr": "smart_query_router_tokens_saved_total{type=\"cache_avoided\"}",
+          "legendFormat": "Cache Avoided Tokens",
+          "refId": "B"
+        },
+        {
+          "expr": "smart_query_router_tokens_saved_total{type=\"local_avoided\"}",
+          "legendFormat": "Local Avoided Tokens",
+          "refId": "C"
+        }
+      ],
+      "title": "Token Savings Breakdown by Optimization Source",
+      "description": "Disaggregates tokens saved into semantic prompt compression, cache hits, and local execution.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 14 },
+      "id": 9,
+      "options": {
+        "displayLabels": ["percent", "name"],
+        "legend": { "displayMode": "table", "placement": "right" },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_route_distribution_total",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Route Distribution Share",
+      "description": "Proportion of queries served locally, by simple model, or escalated to complex model.",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 16, "x": 8, "y": 14 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_cache_operations_total{outcome=\"EXACT_HIT\"}",
+          "legendFormat": "Exact Hits",
+          "refId": "A"
+        },
+        {
+          "expr": "smart_query_router_cache_operations_total{outcome=\"SEMANTIC_HIT\"}",
+          "legendFormat": "Semantic Hits",
+          "refId": "B"
+        },
+        {
+          "expr": "smart_query_router_cache_operations_total{outcome=\"MISS\"}",
+          "legendFormat": "Cache Misses",
+          "refId": "C"
+        },
+        {
+          "expr": "smart_query_router_cache_hit_rate_ratio * 100",
+          "legendFormat": "Hit Rate (%)",
+          "refId": "D"
+        }
+      ],
+      "title": "Cache Performance & Hit Rate Offload",
+      "description": "Exact vs Semantic cache hits offloading LLM inference calls.",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "id": 102,
+      "title": "Section 2: Are We Degrading User Experience? (Latency, Escalation, and Quality)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_request_duration_ms{quantile=\"0.5\"}",
+          "legendFormat": "P50 Latency",
+          "refId": "A"
+        },
+        {
+          "expr": "smart_query_router_request_duration_ms{quantile=\"0.9\"}",
+          "legendFormat": "P90 Latency",
+          "refId": "B"
+        },
+        {
+          "expr": "smart_query_router_request_duration_ms{quantile=\"0.95\"}",
+          "legendFormat": "P95 Latency",
+          "refId": "C"
+        },
+        {
+          "expr": "smart_query_router_request_duration_ms{quantile=\"0.99\"}",
+          "legendFormat": "P99 Latency",
+          "refId": "D"
+        }
+      ],
+      "title": "Request Latency Percentiles (ms)",
+      "description": "Monitors response latencies to ensure router does not introduce unacceptable wait times.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_escalations_total",
+          "legendFormat": "Escalation Reason: {{reason}}",
+          "refId": "A"
+        },
+        {
+          "expr": "smart_query_router_escalation_rate_ratio * 100",
+          "legendFormat": "Escalation Rate (%)",
+          "refId": "B"
+        }
+      ],
+      "title": "Model Escalation Trend & Disaggregated Trigger Reasons",
+      "description": "Tracks queries where small model output failed quality verification and escalated to strong model.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 30 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_errors_total",
+          "legendFormat": "{{category}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Error Breakdown by Failure Category",
+      "description": "Categorizes gateway timeouts, schema errors, provider rate limits, and network errors.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 30 },
+      "id": 14,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_route_p95_latency_ms",
+          "legendFormat": "Route P95: {{route}}",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Latency Disaggregated by Route (ms)",
+      "description": "Shows response time comparison across local-eligible, simple-model, and complex-model candidates.",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "id": 103,
+      "title": "Section 3: System Health & Infrastructure Concurrency",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 38 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "smart_query_router_in_flight_requests",
+          "legendFormat": "In-Flight Concurrency (Queue)",
+          "refId": "A"
+        },
+        {
+          "expr": "http_requests_in_flight",
+          "legendFormat": "HPA Custom Metric Signal",
+          "refId": "B"
+        }
+      ],
+      "title": "In-Flight Request Concurrency & Queue Depth",
+      "description": "Primary scaling trigger for model workloads (I/O-bound queue saturation indicator).",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "red", "text": "DEGRADED" },
+                "1": { "color": "green", "text": "READY" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 12, "y": 38 },
+      "id": 16,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_subsystem_health",
+          "legendFormat": "{{subsystem}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Subsystem Readiness Status",
+      "description": "Component readiness state across gateway, cache, semantic_cache, rollout_manager, and router.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 20, "y": 38 },
+      "id": 17,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "smart_query_router_uptime_seconds",
+          "legendFormat": "Uptime",
+          "refId": "A"
+        }
+      ],
+      "title": "Service Uptime",
+      "description": "Process running time in seconds.",
+      "type": "stat"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["smart-query-router", "observability", "production", "cost-savings", "sla"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "value": "Prometheus" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data Source",
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"] },
+  "timezone": "browser",
+  "title": "Smart Query Router - Work Saved vs User Experience Production Dashboard",
+  "uid": "sqr-work-saved-ux",
+  "version": 1
+}

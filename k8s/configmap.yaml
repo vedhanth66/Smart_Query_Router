@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-query-router-config
+  namespace: smart-query-router
+  labels:
+    app.kubernetes.io/name: smart-query-router-backend
+    app.kubernetes.io/part-of: smart-query-router
+    app.kubernetes.io/component: config
+data:
+  ENVIRONMENT: "production"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LOG_LEVEL: "INFO"
+  ROUTER_CACHE_ENABLED: "true"
+  ROUTER_SEMANTIC_CACHE_ENABLED: "true"
+  ROUTER_CACHE_DEFAULT_TTL_SECONDS: "3600"
+  ROUTER_EXPERIMENTAL_COMPRESSION_ENABLED: "false"
+  ROUTER_ROLLOUT_PERCENTAGE: "10.0"
+  ROUTER_KILL_SWITCH_ENGAGED: "false"

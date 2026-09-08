@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from fastapi import FastAPI, Header, Response, status, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from .schemas.contract import (
+    ClientMetadata,
     NormalizedQueryPackage,
     OptimizationDecisionResponse,
     DecisionType,
@@ -92,6 +93,12 @@ from .schemas.ml_model import (
     GuardedPredictionRequest,
     MLCompareEmbeddingsRequest,
 )
+from .schemas.shadow_routing import (
+    ShadowEvaluationStatusReport,
+    ShadowActivationRequest,
+    ShadowBatchSimulateRequest,
+    ShadowActivationThresholds,
+)
 from .dataset.ml_dataset_generator import (
     MLFeatureDatasetGenerator,
     save_ml_dataset_json,
@@ -101,6 +108,23 @@ from .dataset.ml_dataset_generator import (
 )
 from .ml.router_classifier import (
     MLRouterClassifier,
+)
+from .ml.shadow_router import (
+    default_shadow_router,
+)
+from .schemas.rollout_routing import (
+    RolloutCohort,
+    RolloutConfig,
+    RollbackTriggerThresholds,
+    RolloutStatusReport,
+    RolloutConfigureRequest,
+    KillSwitchRequest,
+    RollbackResetRequest,
+    RolloutSimulationRequest,
+)
+from .ml.rollout_manager import (
+    RolloutManager,
+    default_rollout_manager,
 )
 from .gateway import (
     default_gateway,
@@ -131,6 +155,10 @@ from .optimizer import (
     is_experimental_compression_allowed,
     ExperimentalCompressionConfig,
 )
+from .config import get_settings
+from .metrics import production_metrics
+
+APP_START_TIME = time.time()
 
 DEFAULT_EVAL_CONFIDENCE_THRESHOLD = 0.70
 DEFAULT_EVAL_COMPLETENESS_THRESHOLD = 0.70
@@ -169,14 +197,144 @@ app.add_middleware(
     expose_headers=["X-Correlation-ID"],
 )
 
+# Concurrency and In-Flight Metrics Tracking
+IN_FLIGHT_REQUESTS: int = 0
+TOTAL_REQUESTS_SERVED: int = 0
+RECENT_REQUEST_LATENCIES_MS: list[float] = []
+
+
+@app.middleware("http")
+async def track_in_flight_concurrency(request, call_next):
+    """Tracks active in-flight requests and request duration for queue-aware scaling."""
+    global IN_FLIGHT_REQUESTS, TOTAL_REQUESTS_SERVED
+    IN_FLIGHT_REQUESTS += 1
+    production_metrics.increment_in_flight()
+    t0 = time.perf_counter()
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        IN_FLIGHT_REQUESTS = max(0, IN_FLIGHT_REQUESTS - 1)
+        TOTAL_REQUESTS_SERVED += 1
+        production_metrics.decrement_in_flight()
+        if len(RECENT_REQUEST_LATENCIES_MS) >= 1000:
+            RECENT_REQUEST_LATENCIES_MS.pop(0)
+        RECENT_REQUEST_LATENCIES_MS.append(duration_ms)
+
+
+@app.get("/metrics", response_class=Response, summary="Prometheus metrics for queue-aware autoscaling and production observability")
+def metrics_endpoint() -> Response:
+    """Prometheus exposition metrics endpoint for queue-aware autoscaling and monitoring."""
+    return Response(content=production_metrics.export_prometheus(), media_type="text/plain; version=0.0.4")
+
+
+@app.get("/api/v1/metrics/summary", summary="Production metrics summary answering 'Are we saving work without degrading user experience?'")
+def metrics_summary_endpoint() -> dict[str, Any]:
+    """Summary report answering: 'Are we saving work without degrading user experience?'"""
+    return production_metrics.get_summary_report()
+
 
 @app.get("/health", status_code=status.HTTP_200_OK)
-def health_check() -> dict[str, str]:
+def health_check() -> dict[str, Any]:
     """Health and liveness endpoint."""
     return {
         "status": "ok",
         "service": "smart-query-router-backend",
-        "version": "0.1.0"
+        "version": "0.1.0",
+        "uptime_seconds": round(time.time() - APP_START_TIME, 2),
+    }
+
+
+@app.get("/healthz", status_code=status.HTTP_200_OK)
+def liveness_probe() -> dict[str, Any]:
+    """Kubernetes / container orchestration liveness probe."""
+    return {
+        "status": "ok",
+        "service": "smart-query-router-backend",
+        "version": "0.1.0",
+        "timestamp": int(time.time()),
+        "uptime_seconds": round(time.time() - APP_START_TIME, 2),
+    }
+
+
+@app.get("/readyz", status_code=status.HTTP_200_OK)
+def readiness_probe(response: Response) -> dict[str, Any]:
+    """Kubernetes / container orchestration readiness probe."""
+    components: dict[str, str] = {}
+    is_ready = True
+
+    # 1. Cache readiness check
+    try:
+        if default_response_cache is not None and default_semantic_cache is not None:
+            components["cache"] = "ready"
+        else:
+            components["cache"] = "unavailable"
+            is_ready = False
+    except Exception as exc:
+        components["cache"] = f"error: {str(exc)}"
+        is_ready = False
+
+    # 2. Gateway readiness check
+    try:
+        if default_gateway is not None:
+            components["gateway"] = "ready"
+        else:
+            components["gateway"] = "unavailable"
+            is_ready = False
+    except Exception as exc:
+        components["gateway"] = f"error: {str(exc)}"
+        is_ready = False
+
+    # 3. Rollout manager readiness check
+    try:
+        if default_rollout_manager is not None:
+            components["rollout"] = "ready"
+        else:
+            components["rollout"] = "unavailable"
+            is_ready = False
+    except Exception as exc:
+        components["rollout"] = f"error: {str(exc)}"
+        is_ready = False
+
+    # 4. Settings readiness check
+    try:
+        _ = get_settings()
+        components["config"] = "ready"
+    except Exception as exc:
+        components["config"] = f"error: {str(exc)}"
+        is_ready = False
+
+    production_metrics.set_subsystem_health("cache", components.get("cache") == "ready")
+    production_metrics.set_subsystem_health("semantic_cache", default_semantic_cache is not None)
+    production_metrics.set_subsystem_health("gateway", components.get("gateway") == "ready")
+    production_metrics.set_subsystem_health("rollout_manager", components.get("rollout") == "ready")
+    production_metrics.set_subsystem_health("router", is_ready)
+
+    if not is_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {
+            "status": "unhealthy",
+            "uptime_seconds": round(time.time() - APP_START_TIME, 2),
+            "components": components,
+        }
+
+    return {
+        "status": "ready",
+        "uptime_seconds": round(time.time() - APP_START_TIME, 2),
+        "components": components,
+    }
+
+
+@app.get("/startupz", status_code=status.HTTP_200_OK)
+def startup_probe() -> dict[str, Any]:
+    """Kubernetes / container orchestration startup probe."""
+    return {
+        "status": "started",
+        "service": "smart-query-router-backend",
+        "version": "0.1.0",
+        "timestamp": int(time.time()),
+        "uptime_seconds": round(time.time() - APP_START_TIME, 2),
     }
 
 
@@ -207,17 +365,18 @@ async def evaluate_optimization(
     - Records route, model_version, latency, and failure_category as metadata.
     - Isolated deduplication and exact-match cache by tenant and user scope.
     """
-    correlation_id = x_correlation_id or package.correlation_id or package.request_id
+    corr_val = x_correlation_id if isinstance(x_correlation_id, str) else None
+    correlation_id = corr_val or package.correlation_id or package.request_id
     response.headers["X-Correlation-ID"] = correlation_id
 
     effective_user_id = (
-        x_user_id
+        (x_user_id if isinstance(x_user_id, str) else None)
         or package.user_id
         or (package.client_metadata.user_id if package.client_metadata else None)
         or "default_user"
     )
     effective_tenant_id = (
-        x_tenant_id
+        (x_tenant_id if isinstance(x_tenant_id, str) else None)
         or package.tenant_id
         or (package.client_metadata.tenant_id if package.client_metadata else None)
         or "default_tenant"
@@ -309,13 +468,12 @@ async def evaluate_optimization(
         reason_code = "DEFAULT_BASELINE_FALLTHROUGH"
         instructions = None
 
-    # Deterministic coarse route determination
+    # Deterministic router as immediate fallback & baseline
+    rule_coarse_route: CoarseRoute
     if package.coarse_route:
-        coarse_route = package.coarse_route
+        rule_coarse_route = package.coarse_route
     elif has_rich:
-        # Queries depending on attachments, images, files, tables, or rich inputs
-        # strictly default to conservative complex-model candidate
-        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.task_category in [
         TaskCategory.CODING,
         TaskCategory.DEBUGGING,
@@ -323,9 +481,9 @@ async def evaluate_optimization(
         TaskCategory.COMPARISON,
         TaskCategory.ANALYSIS,
     ]:
-        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.task_category in [TaskCategory.GREETING, TaskCategory.ARITHMETIC]:
-        coarse_route = CoarseRoute.LOCAL_ELIGIBLE
+        rule_coarse_route = CoarseRoute.LOCAL_ELIGIBLE
     elif package.task_category in [
         TaskCategory.FACTUAL_QUESTION,
         TaskCategory.SUMMARIZATION,
@@ -333,22 +491,107 @@ async def evaluate_optimization(
         TaskCategory.TRANSLATION,
         TaskCategory.CREATIVE_WRITING,
     ]:
-        coarse_route = CoarseRoute.SIMPLE_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.SIMPLE_MODEL_CANDIDATE
     elif package.local_features and package.local_features.has_code:
-        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.local_features and package.local_features.has_math:
-        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.local_features and package.local_features.detected_cues:
-        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.context_candidates:
-        coarse_route = CoarseRoute.NEEDS_EVALUATION
+        rule_coarse_route = CoarseRoute.NEEDS_EVALUATION
     elif len(query) < 15 and any(query.lower().startswith(g) for g in ["hi", "hello", "hey", "thanks"]):
-        coarse_route = CoarseRoute.LOCAL_ELIGIBLE
+        rule_coarse_route = CoarseRoute.LOCAL_ELIGIBLE
     else:
-        coarse_route = CoarseRoute.SIMPLE_MODEL_CANDIDATE
+        rule_coarse_route = CoarseRoute.SIMPLE_MODEL_CANDIDATE
 
-    # Resolve model tier via decoupled gateway abstraction
-    model_tier = default_gateway.resolve_tier_from_route(coarse_route.value if coarse_route else None)
+    rule_model_tier = default_gateway.resolve_tier_from_route(rule_coarse_route.value if rule_coarse_route else None)
+
+    # Rollout and Fallback Cohort Allocation
+    assigned_cohort: RolloutCohort = RolloutCohort.CONTROL_RULE
+    coarse_route = rule_coarse_route
+    model_tier = rule_model_tier
+
+    # Track quality and escalation signals across execution
+    observed_completeness: float | None = None
+    observed_confidence: float | None = None
+    observed_issues: list[str] = []
+    escalation_reason: str | None = None
+
+    if package.coarse_route:
+        # Client explicitly forced route: honor it
+        coarse_route = package.coarse_route
+        model_tier = default_gateway.resolve_tier_from_route(coarse_route.value if coarse_route else None)
+    else:
+        should_route_ml, rollout_reason = default_rollout_manager.should_route_to_ml(
+            package=package,
+            user_id=effective_user_id,
+            tenant_id=effective_tenant_id,
+        )
+        if should_route_ml:
+            try:
+                guarded_router = default_shadow_router._ensure_guarded_router()
+
+                has_context_dep = bool(package.context_candidates)
+                prior_turns = [
+                    {"role": t.role, "content": t.content} for t in (package.context_candidates or [])
+                ]
+                task_cat_str = package.task_category.value if package.task_category else None
+                complexity_str = package.complexity_level.value if package.complexity_level else None
+
+                local_sigs = None
+                if package.local_features:
+                    lf = package.local_features
+                    local_sigs = {
+                        "char_count": lf.char_count,
+                        "word_count": lf.word_count,
+                        "estimated_tokens": lf.estimated_tokens,
+                        "has_code": lf.has_code,
+                        "has_math": lf.has_math,
+                        "has_questions": lf.has_questions,
+                        "has_urls": lf.has_urls,
+                        "has_tables": lf.has_tables,
+                        "has_code_blocks": lf.has_code_blocks,
+                        "has_rich_input": lf.has_rich_input,
+                        "uppercase_ratio": lf.uppercase_ratio,
+                        "numeric_ratio": lf.numeric_ratio,
+                        "special_char_ratio": lf.special_char_ratio,
+                    }
+
+                ml_decision = guarded_router.route_query(
+                    query_text=package.query_text,
+                    task_type=task_cat_str,
+                    complexity_label=complexity_str,
+                    has_context_dependency=has_context_dep,
+                    prior_conversation_turns=prior_turns,
+                    local_signals=local_sigs,
+                )
+                if ml_decision.final_route in [r.value for r in CoarseRoute]:
+                    coarse_route = CoarseRoute(ml_decision.final_route)
+                    model_tier = default_gateway.resolve_tier_from_route(coarse_route.value)
+                    assigned_cohort = RolloutCohort.ML
+                    confidence = ml_decision.ml_confidence or 0.85
+                    reason_code = f"ML_ROUTING_{ml_decision.decision_gate}"
+                    if instructions and model_tier:
+                        instructions.suggested_model = default_gateway.get_model_recommendation(model_tier)
+                        instructions.notes = f"Routed via active ML rollout ({ml_decision.decision_gate})"
+                else:
+                    # Unrecognized route fallback
+                    coarse_route = rule_coarse_route
+                    model_tier = rule_model_tier
+                    assigned_cohort = RolloutCohort.FALLBACK_DETERMINISTIC
+                    reason_code = "FALLBACK_DETERMINISTIC_UNRECOGNIZED_ML_ROUTE"
+            except Exception:
+                # Immediate fallback to deterministic router on ML error
+                coarse_route = rule_coarse_route
+                model_tier = rule_model_tier
+                assigned_cohort = RolloutCohort.FALLBACK_DETERMINISTIC
+                reason_code = "FALLBACK_DETERMINISTIC_ON_ML_ERROR"
+        else:
+            coarse_route = rule_coarse_route
+            model_tier = rule_model_tier
+            assigned_cohort = RolloutCohort.CONTROL_RULE
+
     if instructions and model_tier and not instructions.suggested_model:
         instructions.suggested_model = default_gateway.get_model_recommendation(model_tier)
 
@@ -484,6 +727,7 @@ async def evaluate_optimization(
                         )
 
                         async def _run_simple_route() -> RouteExecutionMetadata:
+                            nonlocal observed_completeness, observed_confidence, observed_issues, escalation_reason
                             gw_req = GatewayRequest(
                                 prompt=query,
                                 tier=ModelTier.FAST_CHEAP,
@@ -504,6 +748,10 @@ async def evaluate_optimization(
                                 eval_req,
                                 evaluator_id="heuristic-incompleteness-v1"
                             )
+
+                            observed_completeness = eval_res.completeness
+                            observed_confidence = eval_res.confidence
+                            observed_issues = [i.issue_code for i in eval_res.detected_issues]
 
                             conf_threshold = get_eval_confidence_threshold()
                             comp_threshold = get_eval_completeness_threshold()
@@ -906,6 +1154,84 @@ async def evaluate_optimization(
                 semantic_cache_outcome="SEMANTIC_BYPASS",
                 semantic_validation_reason="GATEWAY_FAILURE_FALLBACK",
             )
+
+    # -------------------------------------------------------------
+    # ML Rollout Telemetry Recording & Automated Rollback Evaluation
+    # -------------------------------------------------------------
+    try:
+        default_rollout_manager.record_query_telemetry(
+            cohort=assigned_cohort,
+            route=coarse_route.value if coarse_route else "unknown",
+            latency_ms=execution_metadata.latency_ms if execution_metadata else 0.0,
+            cache_outcome=execution_metadata.cache_outcome.value if (execution_metadata and execution_metadata.cache_outcome) else "NOT_CHECKED",
+            is_escalated=bool(escalation_reason),
+            escalation_reason=escalation_reason,
+            has_error=bool(execution_metadata and execution_metadata.failure_category not in (None, "NONE")),
+            failure_category=execution_metadata.failure_category if execution_metadata else "NONE",
+            completeness_score=observed_completeness,
+            confidence_score=observed_confidence,
+            detected_issues=observed_issues,
+        )
+    except Exception:
+        pass
+
+    # -------------------------------------------------------------
+    # Production Telemetry & Savings Recording (Strictly Zero Query Content Stored)
+    # -------------------------------------------------------------
+    try:
+        in_toks = (
+            query_optimization.original_token_estimate
+            if query_optimization and query_optimization.original_token_estimate
+            else max(1, len(package.query_text) // 4)
+        )
+        comp_toks = None
+        if query_optimization and query_optimization.is_transformed and query_optimization.optimized_token_estimate:
+            comp_toks = query_optimization.optimized_token_estimate
+        elif experimental_compression and experimental_compression.is_compressed:
+            comp_toks = experimental_compression.compressed_token_estimate
+
+        production_metrics.record_query_execution(
+            route=coarse_route.value if coarse_route else "unknown",
+            status_code=500 if (execution_metadata and execution_metadata.failure_category not in (None, "NONE")) else 200,
+            cohort=assigned_cohort.value if hasattr(assigned_cohort, "value") else str(assigned_cohort),
+            latency_ms=execution_metadata.latency_ms if execution_metadata else 0.0,
+            cache_outcome=execution_metadata.cache_outcome.value if (execution_metadata and execution_metadata.cache_outcome) else "NOT_CHECKED",
+            is_escalated=bool(escalation_reason),
+            escalation_reason=escalation_reason,
+            has_error=bool(execution_metadata and execution_metadata.failure_category not in (None, "NONE")),
+            error_category=execution_metadata.failure_category if execution_metadata else None,
+            input_tokens=in_toks,
+            output_tokens=250,
+            compressed_input_tokens=comp_toks,
+            confidence_score=observed_confidence,
+            completeness_score=observed_completeness,
+        )
+    except Exception:
+        pass
+
+    # -------------------------------------------------------------
+    # ML Router Shadow Mode Evaluation (Zero production interference by default)
+    # -------------------------------------------------------------
+    try:
+        shadow_event = default_shadow_router.evaluate_shadow(
+            package=package,
+            production_route=rule_coarse_route.value if rule_coarse_route else "complex-model candidate",
+            production_tier=rule_model_tier.value if rule_model_tier else "strong",
+        )
+
+        # Controlled Activation: Only if project thresholds are satisfied and ML routing is active
+        if default_shadow_router.is_active:
+            if shadow_event.ml_route in [r.value for r in CoarseRoute]:
+                coarse_route = CoarseRoute(shadow_event.ml_route)
+            model_tier = default_gateway.resolve_tier_from_route(shadow_event.ml_route)
+            confidence = shadow_event.ml_confidence
+            reason_code = f"ML_ROUTING_ACTIVE_{shadow_event.ml_decision_gate}"
+            if instructions and model_tier:
+                instructions.suggested_model = default_gateway.get_model_recommendation(model_tier)
+                instructions.notes = f"Routed via activated ML model ({shadow_event.ml_decision_gate})"
+    except Exception:
+        # Passive shadow evaluation failure MUST NOT block or fail production routing
+        pass
 
     return OptimizationDecisionResponse(
         request_id=package.request_id,
@@ -2204,6 +2530,248 @@ async def predict_guarded_route(
         local_signals=request.local_signals,
         context_signals=request.context_signals,
     )
+
+
+@app.get(
+    "/api/v1/models/router-classifier/shadow-mode/report",
+    response_model=ShadowEvaluationStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve shadow routing evaluation report, disagreements, savings, and threshold checklist"
+)
+async def get_shadow_mode_report(
+    min_sample_size: int | None = Query(default=None, ge=1),
+    min_agreement_rate: float | None = Query(default=None, ge=0.0, le=100.0),
+    max_quality_risk: float | None = Query(default=None, ge=0.0, le=100.0),
+) -> ShadowEvaluationStatusReport:
+    """Retrieves observed shadow routing analytics, disagreements, expected savings, and threshold status."""
+    custom_th = None
+    if min_sample_size is not None or min_agreement_rate is not None or max_quality_risk is not None:
+        custom_th = ShadowActivationThresholds(
+            min_sample_size=min_sample_size if min_sample_size is not None else default_shadow_router.default_thresholds.min_sample_size,
+            min_agreement_rate_pct=min_agreement_rate if min_agreement_rate is not None else default_shadow_router.default_thresholds.min_agreement_rate_pct,
+            max_quality_risk_pct=max_quality_risk if max_quality_risk is not None else default_shadow_router.default_thresholds.max_quality_risk_pct,
+        )
+    return default_shadow_router.get_status_report(thresholds=custom_th)
+
+
+@app.post(
+    "/api/v1/models/router-classifier/shadow-mode/activate",
+    response_model=ShadowEvaluationStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Activate ML routing if project evidence and threshold criteria are satisfied"
+)
+async def activate_ml_routing(
+    request: ShadowActivationRequest | None = None,
+) -> ShadowEvaluationStatusReport:
+    """Evaluates activation threshold checklist and enables ML routing if evidence criteria are met."""
+    req = request or ShadowActivationRequest()
+    try:
+        return default_shadow_router.try_activate(
+            force=req.force_activation,
+            justification=req.bypass_justification,
+            thresholds=req.custom_thresholds,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@app.post(
+    "/api/v1/models/router-classifier/shadow-mode/deactivate",
+    response_model=ShadowEvaluationStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Deactivate ML routing and return to passive shadow evaluation mode"
+)
+async def deactivate_ml_routing() -> ShadowEvaluationStatusReport:
+    """Disables ML routing in production and restores authoritative rule router with shadow tracking."""
+    return default_shadow_router.deactivate()
+
+
+@app.post(
+    "/api/v1/models/router-classifier/shadow-mode/simulate-batch",
+    response_model=ShadowEvaluationStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Simulate a batch of benchmark queries through shadow routing"
+)
+async def simulate_shadow_batch(
+    request: ShadowBatchSimulateRequest | None = None,
+) -> ShadowEvaluationStatusReport:
+    """Loads benchmark queries and simulates them through shadow evaluation to build evidence."""
+    req = request or ShadowBatchSimulateRequest()
+
+    dataset_path = (
+        Path(req.dataset_path)
+        if req.dataset_path
+        else (Path(__file__).parent / "dataset" / "canonical_benchmark.json")
+    )
+
+    if not dataset_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Benchmark dataset not found at: {dataset_path}",
+        )
+
+    b_data = load_benchmark_dataset(dataset_path)
+
+    for _ in range(req.iterations):
+        for item in b_data.items:
+            # Map item task type to contract TaskCategory if possible
+            t_cat: TaskCategory | None = None
+            try:
+                t_cat = TaskCategory(item.task_type.value)
+            except Exception:
+                pass
+
+            comp_lvl: ComplexityLevel | None = None
+            try:
+                if item.complexity_label:
+                    comp_lvl = ComplexityLevel(item.complexity_label.value)
+            except Exception:
+                pass
+
+            pkg = NormalizedQueryPackage(
+                request_id=f"sim_{item.id}_{int(time.time() * 1000)}",
+                query_text=item.query,
+                task_category=t_cat,
+                complexity_level=comp_lvl,
+                execute_route=False,
+                client_metadata=ClientMetadata(
+                    extension_version="0.1.0",
+                    client_type="benchmark_simulator",
+                ),
+            )
+
+            # Route through evaluate_optimization
+            resp_dummy = Response()
+            await evaluate_optimization(
+                package=pkg,
+                response=resp_dummy,
+                x_correlation_id=pkg.request_id,
+                x_user_id="benchmark_sim",
+                x_tenant_id="benchmark_sim",
+            )
+
+    return default_shadow_router.get_status_report()
+
+
+# =========================================================================
+# ML Router Limited Rollout, Kill Switch & Rollback Endpoints
+# =========================================================================
+
+@app.get(
+    "/api/v1/router/rollout/status",
+    response_model=RolloutStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve rollout status, multi-dimensional cohort metrics, and rollback state"
+)
+async def get_rollout_status() -> RolloutStatusReport:
+    """Returns real-time telemetry across all 6 monitoring dimensions and automated rollback trigger status."""
+    return default_rollout_manager.get_status_report()
+
+
+@app.post(
+    "/api/v1/router/rollout/configure",
+    response_model=RolloutStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Update rollout configuration, canary percentage, allow/denylists, or thresholds"
+)
+async def configure_rollout(request: RolloutConfigureRequest) -> RolloutStatusReport:
+    """Configures canary rollout percentage, consistent hashing rules, or rollback trigger thresholds."""
+    return default_rollout_manager.update_config(request)
+
+
+@app.post(
+    "/api/v1/router/rollout/kill-switch",
+    response_model=RolloutStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Engage or disengage the global emergency kill switch"
+)
+async def toggle_kill_switch(request: KillSwitchRequest) -> RolloutStatusReport:
+    """Immediately diverts 100% of traffic back to the deterministic router when engaged."""
+    return default_rollout_manager.set_kill_switch(engage=request.engage, reason=request.reason)
+
+
+@app.post(
+    "/api/v1/router/rollout/reset-rollback",
+    response_model=RolloutStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Reset an automated rollback after operator inspection"
+)
+async def reset_rollback(request: RollbackResetRequest) -> RolloutStatusReport:
+    """Resets the automated rollback status and cautiously restores canary traffic."""
+    return default_rollout_manager.reset_rollback(
+        justification=request.justification,
+        restore_percentage=request.restore_rollout_percentage,
+    )
+
+
+@app.post(
+    "/api/v1/router/rollout/simulate",
+    response_model=RolloutStatusReport,
+    status_code=status.HTTP_200_OK,
+    summary="Simulate a batch of benchmark queries across canary rollout cohorts"
+)
+async def simulate_rollout_batch(
+    request: RolloutSimulationRequest | None = None,
+) -> RolloutStatusReport:
+    """Loads benchmark queries and processes them through the full rollout pipeline."""
+    req = request or RolloutSimulationRequest()
+
+    dataset_path = (
+        Path(req.dataset_path)
+        if req.dataset_path
+        else (Path(__file__).parent / "dataset" / "canonical_benchmark.json")
+    )
+
+    if not dataset_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Benchmark dataset not found at: {dataset_path}",
+        )
+
+    b_data = load_benchmark_dataset(dataset_path)
+
+    for _ in range(req.iterations):
+        for item in b_data.items:
+            t_cat: TaskCategory | None = None
+            try:
+                t_cat = TaskCategory(item.task_type.value)
+            except Exception:
+                pass
+
+            comp_lvl: ComplexityLevel | None = None
+            try:
+                if item.complexity_label:
+                    comp_lvl = ComplexityLevel(item.complexity_label.value)
+            except Exception:
+                pass
+
+            pkg = NormalizedQueryPackage(
+                request_id=f"rollout_sim_{item.id}_{int(time.time() * 1000)}",
+                query_text=item.query,
+                task_category=t_cat,
+                complexity_level=comp_lvl,
+                execute_route=False,
+                client_metadata=ClientMetadata(
+                    extension_version="0.1.0",
+                    client_type="rollout_simulator",
+                ),
+            )
+
+            resp_dummy = Response()
+            await evaluate_optimization(
+                package=pkg,
+                response=resp_dummy,
+                x_correlation_id=pkg.request_id,
+                x_user_id="rollout_sim_user",
+                x_tenant_id="rollout_sim_tenant",
+            )
+
+    return default_rollout_manager.get_status_report()
+
+
 
 
 

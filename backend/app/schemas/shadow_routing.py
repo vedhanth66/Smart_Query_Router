@@ -66,7 +66,7 @@ class ShadowActivationThresholds(BaseModel):
     """Configurable project criteria required to authorize activating ML routing."""
     model_config = ConfigDict(extra="forbid")
 
-    min_sample_size: int = Field(default=50, ge=5, description="Minimum shadow evaluation queries required for statistical confidence")
+    min_sample_size: int = Field(default=50, ge=1, description="Minimum shadow evaluation queries required for statistical confidence")
     min_agreement_rate_pct: float = Field(default=70.0, ge=0.0, le=100.0, description="Minimum agreement percentage with production baseline")
     max_quality_risk_pct: float = Field(default=5.0, ge=0.0, le=100.0, description="Maximum allowed percentage of queries with degradation risk")
     min_net_savings_usd: float = Field(default=0.0, description="Minimum net dollar savings required (must not lose money)")

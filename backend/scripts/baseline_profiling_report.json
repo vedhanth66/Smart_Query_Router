@@ -1,0 +1,101 @@
+{
+  "summary": "CPU utilization remains low (< 12%) during model gateway calls even at concurrency 50, while in-flight request queue depth accumulates. Autoscaling must use in-flight concurrency or queue depth, NOT CPU utilization alone, to prevent latency degradation.",
+  "profiles": [
+    {
+      "tier_name": "Local Cache / Rule",
+      "concurrency": 25,
+      "total_requests": 200,
+      "duration_seconds": 0.049,
+      "throughput_rps": 4059.8,
+      "p50_latency_ms": 0.019,
+      "p90_latency_ms": 0.022,
+      "p95_latency_ms": 0.032,
+      "p99_latency_ms": 0.267,
+      "cpu_time_ms_per_req": 0.234,
+      "simulated_cpu_utilization_pct": 95.2,
+      "in_flight_peak": 1,
+      "bottleneck_type": "CPU-bound (High throughput)"
+    },
+    {
+      "tier_name": "ML & Embedding Routing",
+      "concurrency": 25,
+      "total_requests": 200,
+      "duration_seconds": 0.024,
+      "throughput_rps": 8262.8,
+      "p50_latency_ms": 0.088,
+      "p90_latency_ms": 0.132,
+      "p95_latency_ms": 0.207,
+      "p99_latency_ms": 0.734,
+      "cpu_time_ms_per_req": 0.156,
+      "simulated_cpu_utilization_pct": 100.0,
+      "in_flight_peak": 1,
+      "bottleneck_type": "CPU-moderate (Sub-millisecond)"
+    },
+    {
+      "tier_name": "Gateway Model Execution",
+      "concurrency": 1,
+      "total_requests": 20,
+      "duration_seconds": 4.094,
+      "throughput_rps": 4.9,
+      "p50_latency_ms": 202.959,
+      "p90_latency_ms": 214.763,
+      "p95_latency_ms": 214.843,
+      "p99_latency_ms": 214.843,
+      "cpu_time_ms_per_req": 1.562,
+      "simulated_cpu_utilization_pct": 0.8,
+      "in_flight_peak": 1,
+      "bottleneck_type": "I/O & In-Flight Queue Bound"
+    },
+    {
+      "tier_name": "Gateway Model Execution",
+      "concurrency": 10,
+      "total_requests": 20,
+      "duration_seconds": 0.42,
+      "throughput_rps": 47.6,
+      "p50_latency_ms": 214.491,
+      "p90_latency_ms": 217.031,
+      "p95_latency_ms": 217.342,
+      "p99_latency_ms": 217.342,
+      "cpu_time_ms_per_req": 0.0,
+      "simulated_cpu_utilization_pct": 0.0,
+      "in_flight_peak": 10,
+      "bottleneck_type": "I/O & In-Flight Queue Bound"
+    },
+    {
+      "tier_name": "Gateway Model Execution",
+      "concurrency": 25,
+      "total_requests": 50,
+      "duration_seconds": 0.419,
+      "throughput_rps": 119.2,
+      "p50_latency_ms": 215.351,
+      "p90_latency_ms": 217.401,
+      "p95_latency_ms": 217.567,
+      "p99_latency_ms": 218.016,
+      "cpu_time_ms_per_req": 0.312,
+      "simulated_cpu_utilization_pct": 3.7,
+      "in_flight_peak": 25,
+      "bottleneck_type": "I/O & In-Flight Queue Bound"
+    },
+    {
+      "tier_name": "Gateway Model Execution",
+      "concurrency": 50,
+      "total_requests": 100,
+      "duration_seconds": 0.404,
+      "throughput_rps": 247.8,
+      "p50_latency_ms": 196.908,
+      "p90_latency_ms": 200.944,
+      "p95_latency_ms": 201.268,
+      "p99_latency_ms": 201.758,
+      "cpu_time_ms_per_req": 0.312,
+      "simulated_cpu_utilization_pct": 7.7,
+      "in_flight_peak": 50,
+      "bottleneck_type": "I/O & In-Flight Queue Bound"
+    }
+  ],
+  "primary_scaling_signal": "http_requests_in_flight",
+  "recommended_in_flight_target_per_pod": 25,
+  "secondary_signals": {
+    "memory_utilization": "80% limit (OOM protection)",
+    "cpu_utilization": "75% request (fallback protection for batch spikes)"
+  }
+}

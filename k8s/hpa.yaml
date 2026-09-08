@@ -1,0 +1,85 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: smart-query-router-backend-hpa
+  namespace: smart-query-router
+  labels:
+    app.kubernetes.io/name: smart-query-router-backend
+    app.kubernetes.io/part-of: smart-query-router
+    app.kubernetes.io/component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: smart-query-router-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    # --------------------------------------------------------------------------
+    # Trigger 1: Primary Queue-Aware Concurrency Signal (Pods Custom Metric)
+    # Reason: Empirical profiling shows model gateway workloads are I/O-bound.
+    # Pods maintain < 10% CPU while in-flight requests accumulate. Scaling at
+    # 25 in-flight requests/pod ensures asyncio event loops and gateway connection
+    # pools do not saturate, preventing P95 latency degradation.
+    # Latency Effect: Prevents queue backlog, keeping P95 < 250ms.
+    # Cost Effect: Scales out only when true concurrency demands it.
+    # --------------------------------------------------------------------------
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_in_flight
+        target:
+          type: AverageValue
+          averageValue: "25"
+
+    # --------------------------------------------------------------------------
+    # Trigger 2: Secondary Memory Headroom Protection (Resource Metric)
+    # Reason: Protects against memory bloat under large context payload batches
+    # before reaching container memory limit (512Mi).
+    # Latency Effect: Prevents pod OOMKills and costly cold restarts.
+    # Cost Effect: Conservative trigger (80% / ~400Mi) prevents premature scale-out.
+    # --------------------------------------------------------------------------
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+    # --------------------------------------------------------------------------
+    # Trigger 3: Auxiliary Fallback CPU Threshold (Resource Metric)
+    # Reason: Protects against CPU exhaustion during bursty local regex parsing
+    # or synthetic batch embedding generation.
+    # Latency Effect: Ensures event loop maintains responsiveness under CPU spikes.
+    # Cost Effect: Higher threshold (75%) avoids false-positive scaling on brief spikes.
+    # --------------------------------------------------------------------------
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+  behavior:
+    scaleUp:
+      # Rapid scale-out to absorb sudden model gateway traffic spikes
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      # Conservative 5-minute cooldown to prevent flapping/thrashing
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 20
+          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min

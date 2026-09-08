@@ -1,0 +1,36 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "scratch",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E9",   # Syntax errors
+    "F63",  # Invalid comparisons
+    "F7",   # Fatal syntax/control flow
+    "F82",  # Undefined names
+    "F",    # Pyflakes logic & integrity
+]
+ignore = [
+    "F401", # Unused imports (test fixtures and schema re-exports)
+    "F841", # Local variable assigned but unused
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

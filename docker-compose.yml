@@ -1,0 +1,31 @@
+services:
+  smart-query-router-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: smart-query-router-backend:latest
+    container_name: smart-query-router-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=INFO
+      - ROUTER_CACHE_ENABLED=true
+      - ROUTER_SEMANTIC_CACHE_ENABLED=true
+      - ROUTER_CACHE_DEFAULT_TTL_SECONDS=3600
+      - ROUTER_EXPERIMENTAL_COMPRESSION_ENABLED=false
+      - ROUTER_ROLLOUT_PERCENTAGE=10.0
+      - ROUTER_KILL_SWITCH_ENGAGED=false
+      # Secrets can be supplied via host environment variables or file mounts
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - SMALL_MODEL_API_KEY=${SMALL_MODEL_API_KEY:-}
+      - STRONG_MODEL_API_KEY=${STRONG_MODEL_API_KEY:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
