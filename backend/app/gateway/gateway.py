@@ -13,6 +13,7 @@ from .adapters.base import BaseModelAdapter
 from .adapters.claude_adapter import ClaudeAdapter
 from .adapters.small_model_adapter import SmallModelAdapter
 from .adapters.strong_model_adapter import StrongModelAdapter
+from .length_policy import OutputLengthPolicy, default_length_policy
 
 
 class ModelGateway:
@@ -23,11 +24,17 @@ class ModelGateway:
     - Exposes minimum operations for fast/cheap and strong models.
     - Manages registered provider adapter(s) without connecting multiple providers at once.
     - Makes future provider adapters pluggable without rewriting routing logic.
+    - Applies task-aware output length guidance policy upfront before adapter execution.
     """
 
-    def __init__(self, default_adapter: BaseModelAdapter | None = None):
+    def __init__(
+        self,
+        default_adapter: BaseModelAdapter | None = None,
+        length_policy: OutputLengthPolicy | None = None,
+    ):
         self._adapters: dict[str, BaseModelAdapter] = {}
         self._active_provider: str | None = None
+        self._length_policy = length_policy or default_length_policy
 
         if default_adapter:
             self.register_adapter(default_adapter, set_active=True)
@@ -102,22 +109,51 @@ class ModelGateway:
             return adapter.get_model_version_for_tier(tier)
         return getattr(adapter, "_model_version", None)
 
-    async def execute_fast(self, request: GatewayRequest) -> GatewayResponse:
-        """Execute minimum fast/cheap model operation."""
+    @property
+    def length_policy(self) -> OutputLengthPolicy:
+        """Access the task-aware output length policy layer."""
+        return self._length_policy
+
+    async def execute_fast(self, request: GatewayRequest, task_category: Any = None) -> GatewayResponse:
+        """Execute minimum fast/cheap model operation with task-aware output length guidance."""
+        guidance = None
+        if self._length_policy and request.metadata.get("apply_length_policy", True):
+            effective_category = task_category or request.metadata.get("task_category")
+            request = self._length_policy.apply_to_request(request, task_category=effective_category)
+            guidance = request.metadata.get("length_guidance")
         adapter = self.get_adapter(request.provider)
         request_copy = request.model_copy(update={"tier": ModelTier.FAST_CHEAP})
-        return await adapter.execute_fast(request_copy)
+        res = await adapter.execute_fast(request_copy)
+        if guidance and "length_guidance" not in res.raw_metadata:
+            res.raw_metadata["length_guidance"] = guidance
+        return res
 
-    async def execute_strong(self, request: GatewayRequest) -> GatewayResponse:
-        """Execute minimum strong model operation."""
+    async def execute_strong(self, request: GatewayRequest, task_category: Any = None) -> GatewayResponse:
+        """Execute minimum strong model operation with task-aware output length guidance."""
+        guidance = None
+        if self._length_policy and request.metadata.get("apply_length_policy", True):
+            effective_category = task_category or request.metadata.get("task_category")
+            request = self._length_policy.apply_to_request(request, task_category=effective_category)
+            guidance = request.metadata.get("length_guidance")
         adapter = self.get_adapter(request.provider)
         request_copy = request.model_copy(update={"tier": ModelTier.STRONG})
-        return await adapter.execute_strong(request_copy)
+        res = await adapter.execute_strong(request_copy)
+        if guidance and "length_guidance" not in res.raw_metadata:
+            res.raw_metadata["length_guidance"] = guidance
+        return res
 
-    async def execute(self, request: GatewayRequest) -> GatewayResponse:
-        """General operation dispatching based on request tier and provider."""
+    async def execute(self, request: GatewayRequest, task_category: Any = None) -> GatewayResponse:
+        """General operation dispatching based on request tier and provider with length guidance."""
+        guidance = None
+        if self._length_policy and request.metadata.get("apply_length_policy", True):
+            effective_category = task_category or request.metadata.get("task_category")
+            request = self._length_policy.apply_to_request(request, task_category=effective_category)
+            guidance = request.metadata.get("length_guidance")
         adapter = self.get_adapter(request.provider)
-        return await adapter.execute(request.tier, request)
+        res = await adapter.execute(request.tier, request)
+        if guidance and "length_guidance" not in res.raw_metadata:
+            res.raw_metadata["length_guidance"] = guidance
+        return res
 
     async def health_check(self) -> dict[str, Any]:
         """Check gateway health and active adapter status."""
@@ -147,6 +183,7 @@ class ModelGateway:
         small_provider: str = "small_model",
         strong_provider: str = "strong_model",
         comparison_id: str | None = None,
+        task_category: Any = None,
     ) -> ModelExecutionComparison:
         """Executes the request concurrently across both small and strong models and compares outcomes.
         
@@ -155,6 +192,11 @@ class ModelGateway:
         - Emits standardized ModelExecutionComparison with latency/token deltas and lexical overlap.
         - Completely decoupled from provider-specific implementations.
         """
+        guidance = None
+        if self._length_policy and request.metadata.get("apply_length_policy", True):
+            effective_category = task_category or request.metadata.get("task_category")
+            request = self._length_policy.apply_to_request(request, task_category=effective_category)
+            guidance = request.metadata.get("length_guidance")
         small_adapter = self.get_adapter(small_provider)
         strong_adapter = self.get_adapter(strong_provider)
 
@@ -165,6 +207,11 @@ class ModelGateway:
             small_adapter.execute_fast(req_small),
             strong_adapter.execute_strong(req_strong),
         )
+        if guidance:
+            if "length_guidance" not in small_res.raw_metadata:
+                small_res.raw_metadata["length_guidance"] = guidance
+            if "length_guidance" not in strong_res.raw_metadata:
+                strong_res.raw_metadata["length_guidance"] = guidance
 
         return compare_executions(
             small_response=small_res,

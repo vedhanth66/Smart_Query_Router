@@ -30,6 +30,8 @@
       this.tabs = new Map();
       this.startTime = Date.now();
       this.lastAuditTime = Date.now();
+      this.dryRunActions = [];
+      this.maxDryRunActions = 20;
     }
 
     /**
@@ -94,9 +96,30 @@
         serviceWorkerActive: true,
         connectedTabsCount: activeTabs.length,
         activeTabs,
+        dryRunActionsCount: this.dryRunActions.length,
         uptimeMs: Date.now() - this.startTime,
         lastCheckedAt: Date.now()
       };
+    }
+
+    /**
+     * Record a proposed action from dry-run mode
+     * @param {object} action ProposedActionRecord
+     */
+    recordDryRunAction(action) {
+      if (!action) return;
+      this.dryRunActions.unshift(action);
+      if (this.dryRunActions.length > this.maxDryRunActions) {
+        this.dryRunActions.length = this.maxDryRunActions;
+      }
+    }
+
+    /**
+     * Get recent dry run actions (most recent first)
+     * @returns {Array<object>}
+     */
+    getRecentDryRunActions() {
+      return [...this.dryRunActions];
     }
 
     /**

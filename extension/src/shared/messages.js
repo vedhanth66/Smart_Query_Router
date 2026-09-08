@@ -23,7 +23,8 @@
     HEALTH_CHECK: 'ROUTER_HEALTH_CHECK',
     DIAGNOSTICS_REQUEST: 'ROUTER_DIAGNOSTICS_REQUEST',
     QUERY_OBSERVED: 'ROUTER_QUERY_OBSERVED',
-    OPTIMIZE_REQUEST: 'ROUTER_OPTIMIZE_REQUEST'
+    OPTIMIZE_REQUEST: 'ROUTER_OPTIMIZE_REQUEST',
+    DRY_RUN_RECORD: 'ROUTER_DRY_RUN_RECORD'
   });
 
   const ErrorCodes = Object.freeze({
@@ -131,6 +132,16 @@
           };
         }
         break;
+
+      case MessageTypes.DRY_RUN_RECORD:
+        if (!payload.action || typeof payload.action !== 'object') {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'DRY_RUN_RECORD requires non-null object "action"'
+          };
+        }
+        break;
     }
 
     return { valid: true };
@@ -196,6 +207,14 @@
     };
   }
 
+  function createDryRunRecordMessage(action) {
+    return {
+      type: MessageTypes.DRY_RUN_RECORD,
+      timestamp: Date.now(),
+      payload: { action: action || {} }
+    };
+  }
+
   // Helper response creators
   function createSuccessResponse(data) {
     return {
@@ -225,6 +244,7 @@
     createDiagnosticsRequestMessage,
     createQueryObservedMessage,
     createOptimizeRequestMessage,
+    createDryRunRecordMessage,
     createSuccessResponse,
     createErrorResponse
   };

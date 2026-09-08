@@ -43,6 +43,7 @@
         "src/shared/user_settings.js",
         "src/shared/routing_policy_config.js",
         "src/shared/routing_policy.js",
+        "src/shared/optimizer_pipeline.js",
         "src/content/claude_interceptor.js"
       ],
       "run_at": "document_idle"

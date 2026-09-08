@@ -37,7 +37,9 @@
    */
   const DEFAULT_USER_SETTINGS = Object.freeze({
     version: '1.0.0',
-    routingOverride: UserRoutingOverride.AUTOMATIC
+    routingOverride: UserRoutingOverride.AUTOMATIC,
+    dryRunMode: false,
+    backendEnabled: true
   });
 
   const STORAGE_KEY = 'smart_query_router_user_settings';
@@ -64,6 +66,14 @@
       };
     }
 
+    if (settings.dryRunMode !== undefined && typeof settings.dryRunMode !== 'boolean') {
+      return { valid: false, error: 'dryRunMode must be a boolean if provided' };
+    }
+
+    if (settings.backendEnabled !== undefined && typeof settings.backendEnabled !== 'boolean') {
+      return { valid: false, error: 'backendEnabled must be a boolean if provided' };
+    }
+
     return { valid: true };
   }
 
@@ -83,7 +93,13 @@
         : DEFAULT_USER_SETTINGS.version,
       routingOverride: typeof overrides.routingOverride === 'string' && overrides.routingOverride.trim()
         ? overrides.routingOverride.trim()
-        : DEFAULT_USER_SETTINGS.routingOverride
+        : DEFAULT_USER_SETTINGS.routingOverride,
+      dryRunMode: typeof overrides.dryRunMode === 'boolean'
+        ? overrides.dryRunMode
+        : (DEFAULT_USER_SETTINGS.dryRunMode || false),
+      backendEnabled: typeof overrides.backendEnabled === 'boolean'
+        ? overrides.backendEnabled
+        : (DEFAULT_USER_SETTINGS.backendEnabled !== undefined ? DEFAULT_USER_SETTINGS.backendEnabled : true)
     };
 
     const validation = validateUserSettings(merged);
@@ -138,6 +154,40 @@
      */
     async setRoutingOverride(override) {
       return this.updateSettings({ routingOverride: override });
+    }
+
+    /**
+     * Returns whether dry-run mode is currently enabled (defaults to false)
+     * @returns {boolean}
+     */
+    isDryRunMode() {
+      return Boolean(this.currentSettings.dryRunMode);
+    }
+
+    /**
+     * Toggle or set dry-run mode specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setDryRunMode(enabled) {
+      return this.updateSettings({ dryRunMode: Boolean(enabled) });
+    }
+
+    /**
+     * Returns whether backend optimization calls are enabled (defaults to true)
+     * @returns {boolean}
+     */
+    isBackendEnabled() {
+      return this.currentSettings.backendEnabled !== false;
+    }
+
+    /**
+     * Toggle or set backend optimization calls specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setBackendEnabled(enabled) {
+      return this.updateSettings({ backendEnabled: Boolean(enabled) });
     }
 
     /**

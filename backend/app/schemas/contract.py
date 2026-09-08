@@ -299,6 +299,85 @@ class RouteExecutionMetadata(BaseModel):
     )
 
 
+class QueryOptimizationComparison(BaseModel):
+    """Comparison metrics between original query and semantics-preserving optimized query."""
+    model_config = ConfigDict(extra="forbid")
+
+    original_query: str = Field(..., description="Original normalized query, strictly preserved")
+    optimized_query: str = Field(..., description="Optimized query after semantics-preserving transformations")
+    is_transformed: bool = Field(..., description="Whether any transformations altered the query")
+    original_char_count: int = Field(..., ge=0, description="Character count of original query")
+    optimized_char_count: int = Field(..., ge=0, description="Character count of optimized query")
+    char_savings: int = Field(..., description="Character count reduction (original - optimized)")
+    char_savings_pct: float = Field(..., ge=0.0, description="Percentage of characters saved")
+    original_token_estimate: int = Field(..., ge=0, description="Estimated token count of original query")
+    optimized_token_estimate: int = Field(..., ge=0, description="Estimated token count of optimized query")
+    token_savings: int = Field(..., description="Estimated token count reduction")
+    token_savings_pct: float = Field(..., ge=0.0, description="Percentage of tokens saved")
+    compression_ratio: float = Field(..., ge=0.0, description="Ratio of optimized to original characters")
+    transformations_applied: list[str] = Field(default_factory=list, description="List of transformation rules applied")
+
+
+class QualityEvaluationStatus(str, Enum):
+    """Evaluation status regarding model output quality parity.
+    
+    MANDATE: Never make claims about quality parity, degradation, or improvement
+    until empirical evaluation data from task benchmarks exists.
+    """
+    UNVALIDATED = "UNVALIDATED_PENDING_EMPIRICAL_EVALUATION"
+    EMPIRICALLY_EVALUATED = "EMPIRICALLY_EVALUATED"
+
+
+class ExperimentalCompressionResult(BaseModel):
+    """Experimental stronger prompt compression result.
+    
+    Disabled by default and strictly locked in production.
+    High-sensitivity structures (code, math, quoted legal text, URLs) bypass compression.
+    Quality parity is strictly unvalidated pending empirical evaluation.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    original_input: str = Field(..., description="Original input query, strictly preserved")
+    compressed_input: str = Field(..., description="Compressed query text")
+    is_compressed: bool = Field(..., description="Whether stronger compression was applied")
+    bypass_reason: str | None = Field(default=None, max_length=128, description="Reason if compression was bypassed")
+    detected_sensitivities: list[str] = Field(default_factory=list, description="High-sensitivity structures detected")
+    original_char_count: int = Field(..., ge=0, description="Character count of original query")
+    compressed_char_count: int = Field(..., ge=0, description="Character count of compressed query")
+    char_savings: int = Field(..., description="Characters saved")
+    compression_ratio: float = Field(..., ge=0.0, description="Ratio of compressed to original characters")
+    original_token_estimate: int = Field(..., ge=0, description="Estimated tokens of original query")
+    compressed_token_estimate: int = Field(..., ge=0, description="Estimated tokens of compressed query")
+    token_savings: int = Field(..., description="Estimated tokens saved")
+    applied_transformations: list[str] = Field(default_factory=list, description="Specific compression rules applied")
+    quality_evaluation_status: QualityEvaluationStatus = Field(
+        default=QualityEvaluationStatus.UNVALIDATED,
+        description="Quality claim status; unvalidated pending empirical data"
+    )
+
+
+class CompressionABComparisonResult(BaseModel):
+    """A/B comparison between uncompressed routing (Variant A) and compressed routing (Variant B)."""
+    model_config = ConfigDict(extra="forbid")
+
+    comparison_id: str = Field(..., description="Comparison execution identifier")
+    variant_a_prompt: str = Field(..., description="Uncompressed original prompt (Variant A)")
+    variant_b_prompt: str = Field(..., description="Compressed prompt (Variant B)")
+    is_compressed: bool = Field(..., description="Whether Variant B was successfully compressed")
+    compression_ratio: float = Field(..., ge=0.0, description="Compression ratio of Variant B vs Variant A")
+    estimated_token_savings: int = Field(..., description="Estimated token difference (A - B)")
+    variant_a_latency_ms: float = Field(default=0.0, ge=0.0, description="Execution latency for Variant A")
+    variant_b_latency_ms: float = Field(default=0.0, ge=0.0, description="Execution latency for Variant B")
+    latency_delta_ms: float = Field(default=0.0, description="Latency delta (A - B)")
+    variant_a_content: str | None = Field(default=None, description="Model completion for Variant A")
+    variant_b_content: str | None = Field(default=None, description="Model completion for Variant B")
+    lexical_overlap: float = Field(default=0.0, ge=0.0, le=1.0, description="Lexical Jaccard overlap between outputs")
+    quality_evaluation_status: QualityEvaluationStatus = Field(
+        default=QualityEvaluationStatus.UNVALIDATED,
+        description="Quality claim status; unvalidated pending empirical data"
+    )
+
+
 class OptimizationDecisionResponse(BaseModel):
     """Outgoing response contract returned by the backend router to the extension."""
     model_config = ConfigDict(extra="forbid")
@@ -360,6 +439,14 @@ class OptimizationDecisionResponse(BaseModel):
     optimization_instructions: OptimizationInstructions | None = Field(
         default=None,
         description="Optional instructions if optimization action is recommended"
+    )
+    query_optimization: QueryOptimizationComparison | None = Field(
+        default=None,
+        description="Backend query optimization comparison and measured savings metrics"
+    )
+    experimental_compression: ExperimentalCompressionResult | None = Field(
+        default=None,
+        description="Optional experimental stronger compression result when enabled"
     )
     execution_metadata: RouteExecutionMetadata | None = Field(
         default=None,

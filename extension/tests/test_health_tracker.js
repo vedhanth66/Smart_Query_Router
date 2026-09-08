@@ -101,5 +101,23 @@ console.log('Test 5: Tab health check timeout handling...');
   assert.strictEqual(storedData[HEALTH_STORAGE_KEY].connectedTabsCount, 1);
   console.log('PASS: Health state persisted to storage without private user data');
 
+  // Test 8: Recording dry-run actions
+  console.log('Test 8: Recording dry-run proposed actions...');
+  const dtTracker = new HealthTracker();
+  assert.strictEqual(dtTracker.getHealthSummary().dryRunActionsCount, 0);
+  assert.strictEqual(dtTracker.getRecentDryRunActions().length, 0);
+
+  const sampleAction = {
+    actionId: 'dry_123',
+    mode: 'DRY_RUN',
+    safetyGuarantees: { userVisibleBehaviorAltered: false }
+  };
+  dtTracker.recordDryRunAction(sampleAction);
+  assert.strictEqual(dtTracker.getHealthSummary().dryRunActionsCount, 1);
+  const actions = dtTracker.getRecentDryRunActions();
+  assert.strictEqual(actions.length, 1);
+  assert.strictEqual(actions[0].actionId, 'dry_123');
+  console.log('PASS: Dry-run actions recorded and bounded in HealthTracker');
+
   console.log('--- ALL HEALTH TRACKER TESTS PASSED ---');
 })();

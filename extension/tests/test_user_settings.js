@@ -31,8 +31,12 @@ console.log('Test 1: Verifying default settings and automatic fallback...');
 assert.strictEqual(DEFAULT_USER_SETTINGS.version, '1.0.0');
 assert.strictEqual(DEFAULT_USER_SETTINGS.routingOverride, UserRoutingOverride.AUTOMATIC);
 assert.strictEqual(DEFAULT_USER_SETTINGS.routingOverride, 'automatic');
+assert.strictEqual(DEFAULT_USER_SETTINGS.dryRunMode, false);
+assert.strictEqual(DEFAULT_USER_SETTINGS.backendEnabled, true);
 assert.strictEqual(defaultUserSettingsManager.getRoutingOverride(), 'automatic');
-console.log('PASS: Default settings default to automatic routing verified');
+assert.strictEqual(defaultUserSettingsManager.isDryRunMode(), false);
+assert.strictEqual(defaultUserSettingsManager.isBackendEnabled(), true);
+console.log('PASS: Default settings default to automatic routing, dryRunMode OFF, and backendEnabled ON verified');
 
 // Test 2: Verifying UserRoutingOverride enum
 console.log('Test 2: Verifying UserRoutingOverride enum values...');
@@ -95,6 +99,18 @@ assert.strictEqual(manager.getRoutingOverride(), 'prefer-simple');
 
 manager.reset();
 assert.strictEqual(manager.getRoutingOverride(), 'automatic');
+assert.strictEqual(manager.isDryRunMode(), false);
+assert.strictEqual(manager.isBackendEnabled(), true);
+
+manager.setDryRunMode(true);
+assert.strictEqual(manager.isDryRunMode(), true);
+
+manager.setBackendEnabled(false);
+assert.strictEqual(manager.isBackendEnabled(), false);
+
+manager.reset();
+assert.strictEqual(manager.isDryRunMode(), false);
+assert.strictEqual(manager.isBackendEnabled(), true);
 console.log('PASS: In-memory CRUD operations verified');
 
 // Test 6: Storage persistence and async load

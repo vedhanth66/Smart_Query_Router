@@ -57,6 +57,7 @@
   const routingPolicy = routingPolicyModule ? routingPolicyModule.defaultRoutingPolicy : null;
   const userSettingsModule = globalThis.SmartQueryRouterUserSettings || null;
   const userSettingsManager = userSettingsModule ? userSettingsModule.defaultUserSettingsManager : null;
+  const optimizerPipelineModule = globalThis.SmartQueryRouterOptimizerPipeline || null;
 
   // Register deterministic rule plugins if available
   if (decisionEngine) {
@@ -76,6 +77,7 @@
     createInitMessage,
     createQueryObservedMessage,
     createOptimizeRequestMessage,
+    createDryRunRecordMessage,
     createSuccessResponse
   } = msgProtocol;
 
@@ -329,8 +331,53 @@
     );
     sendTypedMessage(observedMsg);
 
-    // Asynchronously dispatch optimization package to backend via service worker (fail-open)
-    if (createOptimizeRequestMessage) {
+    // If dry-run mode is enabled (off by default), run the complete optimizer pipeline in dry-run mode
+    const isDryRun = userSettingsManager && typeof userSettingsManager.isDryRunMode === 'function'
+      ? userSettingsManager.isDryRunMode()
+      : false;
+
+    if (isDryRun && optimizerPipelineModule && typeof optimizerPipelineModule.executeDryRunPipeline === 'function') {
+      optimizerPipelineModule.executeDryRunPipeline({
+        promptText,
+        triggerSource,
+        safeContext,
+        turnTracker,
+        userSettingsManager,
+        deduplicator: null, // Already passed deduplicator earlier in notifyQueryObserved
+        decisionEngine,
+        routingPolicy,
+        backendDispatcher: (queryPackage) => {
+          return new Promise((resolve) => {
+            if (!createOptimizeRequestMessage) {
+              resolve(null);
+              return;
+            }
+            const optMsg = createOptimizeRequestMessage(queryPackage);
+            sendTypedMessage(optMsg, (response) => {
+              resolve(response && response.data ? response.data : null);
+            });
+          });
+        },
+        logger,
+        telemetry: telemetryModule,
+        forceDryRun: true
+      }).then((pipelineResult) => {
+        if (pipelineResult && pipelineResult.proposedAction) {
+          if (latestTransientQueryEvent) {
+            latestTransientQueryEvent.proposedAction = pipelineResult.proposedAction;
+            latestTransientQueryEvent.dryRunMode = true;
+          }
+          if (createDryRunRecordMessage) {
+            sendTypedMessage(createDryRunRecordMessage(pipelineResult.proposedAction));
+          }
+        }
+      }).catch((err) => {
+        if (logger) {
+          logger.warn(EventCategory.FAILURE, 'Dry-run pipeline execution error', { error: err.message });
+        }
+      });
+    } else if (createOptimizeRequestMessage) {
+      // Standard non-dry-run path: asynchronously dispatch optimization package to backend via service worker (fail-open)
       const queryPackage = {
         request_id: (latestTransientQueryEvent && latestTransientQueryEvent.metadata)
           ? latestTransientQueryEvent.metadata.eventId

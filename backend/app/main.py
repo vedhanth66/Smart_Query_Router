@@ -9,6 +9,7 @@ Provides:
 import os
 import time
 from typing import Any
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import FastAPI, Header, Response, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from .schemas.contract import (
@@ -23,6 +24,9 @@ from .schemas.contract import (
     ModelTier,
     RouteExecutionMetadata,
     CacheOutcome,
+    LocalFeatures,
+    ExperimentalCompressionResult,
+    CompressionABComparisonResult,
 )
 from .gateway import (
     default_gateway,
@@ -45,6 +49,13 @@ from .cache import (
     default_deduplicator,
     default_semantic_cache,
     DeduplicationTimeoutError,
+)
+from .optimizer import (
+    default_query_optimizer,
+    default_experimental_compressor,
+    compare_ab_compression_routing,
+    is_experimental_compression_allowed,
+    ExperimentalCompressionConfig,
 )
 
 DEFAULT_EVAL_CONFIDENCE_THRESHOLD = 0.70
@@ -138,7 +149,17 @@ async def evaluate_optimization(
         or "default_tenant"
     )
 
-    query = package.query_text.strip()
+    # Semantics-preserving backend query optimization stage
+    query_optimization = default_query_optimizer.optimize(package.query_text)
+    query = query_optimization.optimized_query if query_optimization.is_transformed else package.query_text.strip()
+
+    # Disabled-by-default experimental stronger compression path (locked in production)
+    experimental_compression: ExperimentalCompressionResult | None = None
+    if is_experimental_compression_allowed(default_experimental_compressor.config):
+        experimental_compression = default_experimental_compressor.compress(
+            package.query_text,
+            features=package.local_features,
+        )
 
     # Minimal deterministic baseline evaluation (no ML yet)
     # Check if query is trivial/short pass-through
@@ -339,6 +360,7 @@ async def evaluate_optimization(
                                 tier=ModelTier.FAST_CHEAP,
                                 provider="small_model",
                                 correlation_id=correlation_id,
+                                metadata={"task_category": package.task_category.value if package.task_category else None},
                             )
                             gw_res = await default_gateway.execute(gw_req)
 
@@ -378,6 +400,7 @@ async def evaluate_optimization(
                                     tier=ModelTier.STRONG,
                                     provider="strong_model",
                                     correlation_id=correlation_id,
+                                    metadata={"task_category": package.task_category.value if package.task_category else None},
                                 )
                                 try:
                                     strong_res = await default_gateway.execute(gw_req_strong)
@@ -405,6 +428,7 @@ async def evaluate_optimization(
                                             "original_model_id": gw_res.model_id,
                                             "original_model_version": gw_res.model_version,
                                             "original_latency_ms": gw_res.latency_ms,
+                                            "length_guidance": strong_res.raw_metadata.get("length_guidance"),
                                         },
                                     )
                                 except (GatewayTimeoutError, GatewayRetryExhaustedError, GatewayResponseSizeLimitError, GatewayError) as strong_err:
@@ -429,6 +453,7 @@ async def evaluate_optimization(
                                             "escalation_recommendation": eval_res.escalation_recommendation.value,
                                             "detected_issues": [i.model_dump() for i in eval_res.detected_issues],
                                             "escalation_error": str(strong_err),
+                                            "length_guidance": gw_res.raw_metadata.get("length_guidance"),
                                         },
                                     )
                             else:
@@ -488,6 +513,7 @@ async def evaluate_optimization(
                                         "escalation_recommendation": eval_res.escalation_recommendation.value,
                                         "detected_issues": [],
                                         "passed": True,
+                                        "length_guidance": gw_res.raw_metadata.get("length_guidance"),
                                     },
                                 )
 
@@ -615,6 +641,7 @@ async def evaluate_optimization(
                                 tier=ModelTier.STRONG,
                                 provider="strong_model",
                                 correlation_id=correlation_id,
+                                metadata={"task_category": package.task_category.value if package.task_category else None},
                             )
                             gw_res = await default_gateway.execute(gw_req)
 
@@ -677,6 +704,7 @@ async def evaluate_optimization(
                 gw_req = GatewayRequest(
                     prompt=query,
                     correlation_id=correlation_id,
+                    metadata={"task_category": package.task_category.value if package.task_category else None},
                 )
                 comp = await default_gateway.compare_execution(
                     request=gw_req,
@@ -685,6 +713,9 @@ async def evaluate_optimization(
                     comparison_id=correlation_id,
                 )
                 max_lat = max(comp.small_response.latency_ms, comp.strong_response.latency_ms)
+                comp_dump = comp.model_dump()
+                if comp.strong_response.raw_metadata.get("length_guidance"):
+                    comp_dump["length_guidance"] = comp.strong_response.raw_metadata["length_guidance"]
                 execution_metadata = RouteExecutionMetadata(
                     route=coarse_route.value,
                     model_id=comp.strong_response.model_id,
@@ -696,7 +727,7 @@ async def evaluate_optimization(
                     cache_outcome=CacheOutcome.BYPASS,
                     semantic_cache_outcome="SEMANTIC_BYPASS",
                     semantic_validation_reason="EVALUATION_POLICY_REQUIRED",
-                    evaluation_metadata=comp.model_dump(),
+                    evaluation_metadata=comp_dump,
                 )
         except DeduplicationTimeoutError:
             # Safe fallback on deduplication wait timeout
@@ -760,6 +791,8 @@ async def evaluate_optimization(
         confidence=confidence,
         reason_code=reason_code,
         optimization_instructions=instructions,
+        query_optimization=query_optimization,
+        experimental_compression=experimental_compression,
         execution_metadata=execution_metadata,
     )
 
@@ -776,10 +809,13 @@ async def gateway_health() -> dict:
     status_code=status.HTTP_200_OK,
     summary="Execute model operation via decoupled gateway"
 )
-async def gateway_execute(request: GatewayRequest) -> GatewayResponse:
+async def gateway_execute(
+    request: GatewayRequest,
+    task_category: TaskCategory | None = None,
+) -> GatewayResponse:
     """Execute model operation through the active adapter."""
     try:
-        return await default_gateway.execute(request)
+        return await default_gateway.execute(request, task_category=task_category)
     except GatewayTimeoutError as e:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -812,6 +848,7 @@ async def gateway_compare(
     request: GatewayRequest,
     small_provider: str = "small_model",
     strong_provider: str = "strong_model",
+    task_category: TaskCategory | None = None,
 ) -> ModelExecutionComparison:
     """Executes small and strong models concurrently and returns comparative metrics."""
     try:
@@ -819,6 +856,7 @@ async def gateway_compare(
             request=request,
             small_provider=small_provider,
             strong_provider=strong_provider,
+            task_category=task_category,
         )
     except GatewayTimeoutError as e:
         raise HTTPException(
@@ -869,6 +907,77 @@ async def clear_semantic_cache() -> dict[str, str]:
     """Clears all entries from the semantic response cache."""
     await default_semantic_cache.clear()
     return {"status": "ok", "message": "Semantic response cache cleared"}
+
+
+class ExperimentalCompressRequest(BaseModel):
+    """Request payload for evaluating experimental prompt compression."""
+    model_config = ConfigDict(extra="forbid")
+
+    query_text: str = Field(..., min_length=1, max_length=100_000)
+    features: LocalFeatures | None = None
+    enabled: bool | None = None
+    environment: str | None = None
+    allow_high_sensitivity: bool | None = None
+
+
+class CompressionABRequest(BaseModel):
+    """Request payload for A/B comparison routing between uncompressed and compressed prompts."""
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(..., min_length=1, max_length=100_000)
+    tier: ModelTier = ModelTier.FAST_CHEAP
+    provider: str | None = None
+    enabled: bool | None = None
+    environment: str | None = None
+    allow_high_sensitivity: bool | None = None
+    correlation_id: str | None = None
+
+
+@app.post(
+    "/api/v1/experimental/compress",
+    response_model=ExperimentalCompressionResult,
+    status_code=status.HTTP_200_OK,
+    summary="Evaluate experimental stronger prompt compression"
+)
+async def evaluate_experimental_compress(req: ExperimentalCompressRequest) -> ExperimentalCompressionResult:
+    """Evaluates experimental stronger prompt compression with safety guardrails and production locking."""
+    cfg = None
+    if req.enabled is not None or req.environment is not None or req.allow_high_sensitivity is not None:
+        cfg = ExperimentalCompressionConfig(
+            enabled=req.enabled if req.enabled is not None else default_experimental_compressor.config.enabled,
+            environment=req.environment if req.environment is not None else default_experimental_compressor.config.environment,
+            allow_high_sensitivity=req.allow_high_sensitivity if req.allow_high_sensitivity is not None else False,
+        )
+    return default_experimental_compressor.compress(
+        req.query_text,
+        features=req.features,
+        override_config=cfg,
+    )
+
+
+@app.post(
+    "/api/v1/experimental/compare-ab",
+    response_model=CompressionABComparisonResult,
+    status_code=status.HTTP_200_OK,
+    summary="Execute A/B comparison routing between uncompressed and compressed prompts"
+)
+async def evaluate_compression_ab_comparison(req: CompressionABRequest) -> CompressionABComparisonResult:
+    """Executes concurrent A/B comparison routing between uncompressed Variant A and compressed Variant B."""
+    cfg = None
+    if req.enabled is not None or req.environment is not None or req.allow_high_sensitivity is not None:
+        cfg = ExperimentalCompressionConfig(
+            enabled=req.enabled if req.enabled is not None else default_experimental_compressor.config.enabled,
+            environment=req.environment if req.environment is not None else default_experimental_compressor.config.environment,
+            allow_high_sensitivity=req.allow_high_sensitivity if req.allow_high_sensitivity is not None else False,
+        )
+    return await compare_ab_compression_routing(
+        gateway=default_gateway,
+        prompt=req.prompt,
+        tier=req.tier,
+        provider=req.provider,
+        override_config=cfg,
+        correlation_id=req.correlation_id,
+    )
 
 
 

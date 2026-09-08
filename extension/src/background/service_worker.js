@@ -16,6 +16,7 @@ importScripts('/src/shared/routing_policy_config.js');
 importScripts('/src/shared/routing_policy.js');
 importScripts('/src/background/health_tracker.js');
 importScripts('/src/shared/backend_client.js');
+importScripts('/src/shared/optimizer_pipeline.js');
 
 const EXTENSION_NAME = 'Smart Query Router';
 const EXTENSION_VERSION = '0.1.0';
@@ -121,10 +122,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case MessageTypes.DIAGNOSTICS_REQUEST:
-      // Expose health state and recent sanitized logs strictly to internal diagnostics
+      // Expose health state, recent dry run actions, and recent sanitized logs strictly to internal diagnostics
       sendResponse(
         createSuccessResponse({
           health: healthTracker.getHealthSummary(),
+          recentDryRunActions: healthTracker.getRecentDryRunActions(),
           recentLogs: logger.getRecentLogs()
         })
       );
@@ -151,6 +153,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         senderTabId
       );
       sendResponse(createSuccessResponse({ observed: true }));
+      return false;
+
+    case MessageTypes.DRY_RUN_RECORD:
+      if (message.payload && message.payload.action) {
+        healthTracker.recordDryRunAction(message.payload.action);
+        logger.info(
+          EventCategory.ROUTING_DECISION,
+          'Dry-run proposed action recorded',
+          {
+            actionId: message.payload.action.actionId,
+            taskType: message.payload.action.detection ? message.payload.action.detection.taskType : null,
+            targetModel: message.payload.action.proposedRoute ? message.payload.action.proposedRoute.targetModel : null,
+            backendCalled: message.payload.action.backendResponse ? message.payload.action.backendResponse.called : false,
+            cacheOutcome: message.payload.action.cacheOutcome ? message.payload.action.cacheOutcome.status : null,
+            dryRun: true,
+            tabId: redactIdentifier(senderTabId)
+          },
+          senderTabId
+        );
+      }
+      sendResponse(createSuccessResponse({ recorded: true }));
       return false;
 
     case MessageTypes.OPTIMIZE_REQUEST:
