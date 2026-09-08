@@ -138,6 +138,7 @@ assert.strictEqual(summary.wordCount, 7);
 assert.strictEqual(summary.privacyLevel, 'STANDARD');
 assert.strictEqual(summary.rawPrompt, undefined, 'rawPrompt must NOT exist in safe summary');
 assert.strictEqual(summary.normalizedPrompt, undefined, 'normalizedPrompt must NOT exist in safe summary');
+assert.strictEqual(summary.conversationId, undefined, 'conversationId must NOT exist in safe summary to prevent session identifier leakage');
 assert(summary.featuresSummary !== null, 'featuresSummary must exist in safe summary');
 assert.strictEqual(summary.featuresSummary.questionCount, 1);
 assert.strictEqual(summary.requiresContextAnalysis, false);

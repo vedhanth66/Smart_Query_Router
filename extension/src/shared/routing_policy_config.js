@@ -36,6 +36,7 @@
     rulePrecedence: Object.freeze([
       'RULE_LOCAL_ELIGIBLE',
       'RULE_CONTEXT_DEPENDENCY_EVALUATION',
+      'RULE_COMPLEX_RICH_CONTENT',
       'RULE_COMPLEX_CODE',
       'RULE_COMPLEX_MATH',
       'RULE_COMPLEX_REASONING_CUE',
@@ -52,6 +53,7 @@
       minConfidence: 0.70,
       treatMultipleQuestionsAsComplex: true,
       treatStructuredListsAsComplex: true,
+      minRichContentConfidence: 0.90,
       minCodeSyntaxConfidence: 0.90,
       minMathConfidence: 0.85,
       minReasoningCueConfidence: 0.85,

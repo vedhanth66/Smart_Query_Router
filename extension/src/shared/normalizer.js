@@ -33,6 +33,10 @@
   // Matches markdown list item prefix (ordered or unordered) with leading indentation
   const LIST_ITEM_PATTERN = /^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/;
 
+  // Matches markdown table rows or ASCII box table lines
+  const TABLE_ROW_PATTERN = /^\s*\|.+?\|\s*$/;
+  const ASCII_TABLE_PATTERN = /^\s*[\+\|][-+=]+[\+\|]\s*$/;
+
   /**
    * Tokenizes an inline line of text to separate protected elements
    * (inline code, quoted strings, inline math) from normal prose text.
@@ -117,6 +121,12 @@
         .trimEnd();
 
       return leadingIndent + listPrefix + normalizedBody;
+    }
+
+    // Check if line is a table row (markdown table or ASCII grid)
+    if (TABLE_ROW_PATTERN.test(line) || ASCII_TABLE_PATTERN.test(line)) {
+      // For table rows, preserve column spacing and alignment verbatim!
+      return line.trimEnd();
     }
 
     // If line has 4+ spaces of indentation or tabs, treat as potential indented code:

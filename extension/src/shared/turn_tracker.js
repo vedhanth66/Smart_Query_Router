@@ -23,6 +23,7 @@
 
   const DEFAULT_MAX_TURNS = 4;
   const DEFAULT_MAX_SNIPPET_CHARS = 300;
+  const DEFAULT_RETENTION_TTL_MS = 900_000; // 15 minutes max in-memory retention
 
   /**
    * Generates a unique, non-sensitive local turn identifier
@@ -69,11 +70,13 @@
      * @param {object} [options]
      * @param {number} [options.maxTurns] - Maximum number of turns to retain (default: 4)
      * @param {number} [options.maxSnippetChars] - Maximum characters per turn snippet (default: 300)
+     * @param {number} [options.retentionTtlMs] - Maximum duration to retain turns in memory (default: 15 min)
      * @param {string|null} [options.conversationId] - Initial conversation UUID
      */
     constructor(options = {}) {
       this.maxTurns = options.maxTurns !== undefined ? Math.max(1, options.maxTurns) : DEFAULT_MAX_TURNS;
       this.maxSnippetChars = options.maxSnippetChars !== undefined ? Math.max(50, options.maxSnippetChars) : DEFAULT_MAX_SNIPPET_CHARS;
+      this.retentionTtlMs = options.retentionTtlMs !== undefined ? Math.max(10, options.retentionTtlMs) : DEFAULT_RETENTION_TTL_MS;
       this.currentConversationId = options.conversationId || null;
 
       // In-memory bounded array (FIFO ring buffer)
@@ -82,6 +85,21 @@
       // Deduplication guard for repeated DOM observations
       this.lastRecordedTextHash = null;
       this.lastRecordedTimestamp = 0;
+    }
+
+    /**
+     * Evicts turns that have exceeded the retention TTL.
+     * Ensures conversation content is not persisted in memory longer than required.
+     * @param {number} [now]
+     * @returns {number} Number of turns pruned
+     */
+    pruneExpiredTurns(now = Date.now()) {
+      const initialCount = this.turns.length;
+      this.turns = this.turns.filter((turn) => {
+        const turnTime = typeof turn.recordedAt === 'number' ? turn.recordedAt : turn.timestamp;
+        return now - turnTime <= this.retentionTtlMs;
+      });
+      return initialCount - this.turns.length;
     }
 
     /**
@@ -94,6 +112,7 @@
      * @returns {object|null} The recorded turn object or null if ignored
      */
     recordTurn({ role, text, conversationId = null, timestamp = Date.now() }) {
+      this.pruneExpiredTurns();
       if (!text || typeof text !== 'string' || !text.trim()) {
         return null;
       }
@@ -129,6 +148,7 @@
         turnId: generateTurnId(normalizedRole),
         role: normalizedRole,
         timestamp,
+        recordedAt: Date.now(),
         snippet: bounded.snippet,
         characterCount: bounded.characterCount,
         truncated: bounded.truncated,
@@ -173,6 +193,7 @@
      * @returns {Array<object>}
      */
     getRecentTurns() {
+      this.pruneExpiredTurns();
       return this.turns.slice();
     }
 
@@ -181,6 +202,7 @@
      * @returns {number}
      */
     getTurnCount() {
+      this.pruneExpiredTurns();
       return this.turns.length;
     }
 
@@ -189,6 +211,7 @@
      * @returns {object|null}
      */
     getLastTurn() {
+      this.pruneExpiredTurns();
       return this.turns.length > 0 ? this.turns[this.turns.length - 1] : null;
     }
 
@@ -197,6 +220,7 @@
      * @returns {object|null}
      */
     getLastAssistantTurn() {
+      this.pruneExpiredTurns();
       for (let i = this.turns.length - 1; i >= 0; i--) {
         if (this.turns[i].role === 'assistant') {
           return this.turns[i];
@@ -216,6 +240,7 @@
      * }}
      */
     getRelevanceContext() {
+      this.pruneExpiredTurns();
       return {
         turnCount: this.turns.length,
         conversationId: this.currentConversationId,

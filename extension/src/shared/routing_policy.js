@@ -61,6 +61,9 @@
   const RoutingReasonCode = Object.freeze({
     LOCAL_DETERMINISTIC_RULE_MATCH: 'LOCAL_DETERMINISTIC_RULE_MATCH',
     CONTEXT_DEPENDENCY_DETECTED: 'CONTEXT_DEPENDENCY_DETECTED',
+    COMPLEX_RICH_CONTENT: 'COMPLEX_RICH_CONTENT',
+    COMPLEX_ATTACHMENT_DEPENDENCY: 'COMPLEX_ATTACHMENT_DEPENDENCY',
+    COMPLEX_TABLE_DATA: 'COMPLEX_TABLE_DATA',
     COMPLEX_CODE_SYNTAX: 'COMPLEX_CODE_SYNTAX',
     COMPLEX_MATH_NOTATION: 'COMPLEX_MATH_NOTATION',
     COMPLEX_REASONING_CUE: 'COMPLEX_REASONING_CUE',
@@ -113,6 +116,16 @@
               : 'automatic'));
         if (!result.userOverride) {
           result.userOverride = userOverride;
+        }
+
+        if (!result.richContent) {
+          const features = (queryEvent && queryEvent.features) || {};
+          const rc = features.richContent || {};
+          result.richContent = {
+            hasRichInput: Boolean(rc.hasRichInput),
+            detectedTypes: Array.isArray(rc.types) ? rc.types.slice() : [],
+            preservationStrategy: rc.hasRichInput ? 'CONSERVATIVE_PRESERVATION' : 'NONE'
+          };
         }
       }
       return result;
@@ -186,7 +199,10 @@
         switch (ruleId) {
           case 'RULE_LOCAL_ELIGIBLE': {
             // Check if local rule matched (e.g. arithmetic, datetime, greeting)
-            const isLocalAnswer = optDecision && optDecision.outcome === 'LOCAL_ANSWER_CANDIDATE';
+            const rc = features.richContent || {};
+            const hasRichContent = Boolean(rc.hasRichInput);
+            // Local deterministic rules must not hijack queries containing attachments, tables, images, or files
+            const isLocalAnswer = !hasRichContent && optDecision && optDecision.outcome === 'LOCAL_ANSWER_CANDIDATE';
             if (isLocalAnswer && this.config.enabledRoutes[CoarseRoute.LOCAL_ELIGIBLE]) {
               trace.push('RULE_LOCAL_ELIGIBLE:MATCH');
               return {
@@ -261,6 +277,54 @@
               };
             }
             trace.push('RULE_CONTEXT_DEPENDENCY_EVALUATION:PASS');
+            break;
+          }
+
+          case 'RULE_COMPLEX_RICH_CONTENT': {
+            const rc = features.richContent || {};
+            const tables = features.tables || {};
+            const attachments = features.attachments || {};
+            const hasRich = Boolean(
+              rc.hasAttachments || rc.hasImages || rc.hasFiles || rc.hasTables ||
+              attachments.hasAttachment || attachments.hasAttachments ||
+              tables.hasTable || tables.hasTables
+            );
+
+            if (hasRich && this.config.enabledRoutes[CoarseRoute.COMPLEX_MODEL_CANDIDATE]) {
+              trace.push('RULE_COMPLEX_RICH_CONTENT:MATCH');
+              const signals = Array.isArray(rc.types) && rc.types.length > 0
+                ? rc.types.slice()
+                : ((tables.hasTable || tables.hasTables) ? ['table'] : ['attachment']);
+              let reasonCode = RoutingReasonCode.COMPLEX_RICH_CONTENT;
+              let explanation = 'Query contains rich input data requiring conservative model routing and full content preservation.';
+
+              if (rc.hasAttachments || rc.hasImages || rc.hasFiles || attachments.hasAttachment || attachments.hasAttachments) {
+                reasonCode = RoutingReasonCode.COMPLEX_ATTACHMENT_DEPENDENCY;
+                explanation = `Query depends on attachments, images, or file uploads (${signals.join(', ')}). Requires complex model for multi-modal reasoning and full content preservation.`;
+              } else if (rc.hasTables || tables.hasTable || tables.hasTables) {
+                reasonCode = RoutingReasonCode.COMPLEX_TABLE_DATA;
+                explanation = `Query contains structured table data (${signals.join(', ')}). Requires complex model for tabular analysis and structure preservation.`;
+              }
+
+              return {
+                route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
+                ruleId: 'RULE_COMPLEX_RICH_CONTENT',
+                reasonCode,
+                explanation,
+                confidence: this.config.thresholds.minRichContentConfidence || 0.90,
+                matchedSignals: signals.length > 0 ? signals : ['hasRichInput'],
+                taskCategory,
+                taskSignal,
+                userOverride,
+                richContent: {
+                  hasRichInput: true,
+                  detectedTypes: signals,
+                  preservationStrategy: 'CONSERVATIVE_PRESERVATION'
+                },
+                ruleTrace: trace
+              };
+            }
+            trace.push('RULE_COMPLEX_RICH_CONTENT:PASS');
             break;
           }
 
@@ -459,6 +523,7 @@
             const cues = features.cues || {};
             const questions = features.questions || {};
             const lists = features.lists || {};
+            const rc = features.richContent || {};
 
             const hasAnyCode = Boolean(code.hasCodeSyntax || code.hasCodeFence || code.hasIndentedCode || taskCategory === 'coding' || taskCategory === 'debugging');
             const hasAnyMath = Boolean(math.hasLatexMath || math.hasMathSymbols);
@@ -466,9 +531,11 @@
             const hasMultipleQuestions = Boolean(questions.hasMultipleQuestions);
             const hasComplexList = Boolean(lists.hasList && lists.totalCount >= 3);
             const isContextDependent = Boolean(contextDep.requiresContextAnalysis);
+            const hasRichContent = Boolean(rc.hasRichInput);
 
             const isCleanSimple = !hasAnyCode && !hasAnyMath && !hasAnyCue &&
-              !hasMultipleQuestions && !hasComplexList && !isContextDependent;
+              !hasMultipleQuestions && !hasComplexList && !isContextDependent &&
+              !hasRichContent;
 
             if (isCleanSimple && this.config.enabledRoutes[CoarseRoute.SIMPLE_MODEL_CANDIDATE]) {
               trace.push('RULE_SIMPLE_INQUIRY:MATCH');

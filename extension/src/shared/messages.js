@@ -24,7 +24,9 @@
     DIAGNOSTICS_REQUEST: 'ROUTER_DIAGNOSTICS_REQUEST',
     QUERY_OBSERVED: 'ROUTER_QUERY_OBSERVED',
     OPTIMIZE_REQUEST: 'ROUTER_OPTIMIZE_REQUEST',
-    DRY_RUN_RECORD: 'ROUTER_DRY_RUN_RECORD'
+    DRY_RUN_RECORD: 'ROUTER_DRY_RUN_RECORD',
+    RESPONSE_STATE_UPDATE: 'ROUTER_RESPONSE_STATE_UPDATE',
+    OUTCOME_FEEDBACK: 'ROUTER_OUTCOME_FEEDBACK'
   });
 
   const ErrorCodes = Object.freeze({
@@ -142,6 +144,40 @@
           };
         }
         break;
+
+      case MessageTypes.RESPONSE_STATE_UPDATE:
+        if (typeof payload.state !== 'string' || !payload.state) {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'RESPONSE_STATE_UPDATE requires non-empty string "state"'
+          };
+        }
+        break;
+
+      case MessageTypes.OUTCOME_FEEDBACK:
+        if (!payload.feedback || typeof payload.feedback !== 'object' || Array.isArray(payload.feedback)) {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'OUTCOME_FEEDBACK requires non-null object "feedback"'
+          };
+        }
+        if (typeof payload.feedback.correlationId !== 'string' || !payload.feedback.correlationId) {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'OUTCOME_FEEDBACK requires string "correlationId" in feedback'
+          };
+        }
+        if (typeof payload.feedback.outcomeType !== 'string' || !payload.feedback.outcomeType) {
+          return {
+            valid: false,
+            code: ErrorCodes.INVALID_PAYLOAD,
+            error: 'OUTCOME_FEEDBACK requires string "outcomeType" in feedback'
+          };
+        }
+        break;
     }
 
     return { valid: true };
@@ -215,6 +251,28 @@
     };
   }
 
+  function createResponseStateUpdateMessage(state, metadata) {
+    return {
+      type: MessageTypes.RESPONSE_STATE_UPDATE,
+      timestamp: Date.now(),
+      payload: {
+        state: String(state),
+        requestId: (metadata && metadata.requestId) ? String(metadata.requestId) : null,
+        correlationId: (metadata && metadata.correlationId) ? String(metadata.correlationId) : null,
+        failureReason: (metadata && metadata.failureReason) ? String(metadata.failureReason) : null,
+        durationMs: (metadata && typeof metadata.durationMs === 'number') ? metadata.durationMs : null
+      }
+    };
+  }
+
+  function createOutcomeFeedbackMessage(feedback) {
+    return {
+      type: MessageTypes.OUTCOME_FEEDBACK,
+      timestamp: Date.now(),
+      payload: { feedback: feedback || {} }
+    };
+  }
+
   // Helper response creators
   function createSuccessResponse(data) {
     return {
@@ -245,6 +303,8 @@
     createQueryObservedMessage,
     createOptimizeRequestMessage,
     createDryRunRecordMessage,
+    createResponseStateUpdateMessage,
+    createOutcomeFeedbackMessage,
     createSuccessResponse,
     createErrorResponse
   };

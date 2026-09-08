@@ -131,8 +131,25 @@ class LocalFeatures(BaseModel):
     has_math: bool = False
     has_questions: bool = False
     has_urls: bool = False
+    has_rich_input: bool = False
+    has_attachments: bool = False
+    has_images: bool = False
+    has_files: bool = False
+    has_code_blocks: bool = False
+    has_tables: bool = False
+    attachment_types: list[str] = Field(default_factory=list, max_length=20)
     is_normalized: bool = False
     detected_cues: list[str] = Field(default_factory=list, max_length=30)
+
+
+class RichContentHandling(BaseModel):
+    """Rich content handling metadata in optimization and routing decisions."""
+    model_config = ConfigDict(extra="forbid")
+
+    has_rich_input: bool = Field(..., description="Whether query depends on rich inputs, attachments, or tables")
+    detected_types: list[str] = Field(default_factory=list, max_length=20, description="Types of rich content detected")
+    preservation_strategy: str = Field(default="NONE", max_length=64, description="Preservation strategy applied")
+    notes: str | None = Field(default=None, max_length=256, description="Handling notes")
 
 
 class ContextCandidateTurn(BaseModel):
@@ -448,6 +465,10 @@ class OptimizationDecisionResponse(BaseModel):
         default=None,
         description="Optional experimental stronger compression result when enabled"
     )
+    rich_content: RichContentHandling | None = Field(
+        default=None,
+        description="Explicit rich content handling strategy and metadata"
+    )
     execution_metadata: RouteExecutionMetadata | None = Field(
         default=None,
         description="Execution and performance metadata recorded during gateway routing"
@@ -507,3 +528,56 @@ class PerformanceTelemetryRecord(BaseModel):
         default=None,
         description="Development-only debug metadata. Never populated in production mode."
     )
+
+
+class FeedbackOutcomeType(str, Enum):
+    """Supported outcome feedback types."""
+    SUCCESSFUL_COMPLETION = "SUCCESSFUL_COMPLETION"
+    USER_REJECTION = "USER_REJECTION"
+    OPTIMIZATION_BYPASS = "OPTIMIZATION_BYPASS"
+    ESCALATION = "ESCALATION"
+    ERROR = "ERROR"
+
+
+class FeedbackSource(str, Enum):
+    """Source of outcome feedback."""
+    SYSTEM = "SYSTEM"
+    USER = "USER"
+
+
+class UserRating(str, Enum):
+    """User rating sentiment."""
+    POSITIVE = "POSITIVE"
+    NEGATIVE = "NEGATIVE"
+    NEUTRAL = "NEUTRAL"
+
+
+class UserFeedbackDetails(BaseModel):
+    """Optional user-supplied feedback details."""
+    model_config = ConfigDict(extra="forbid")
+
+    rating: UserRating | None = None
+    rejection_reason: str | None = Field(default=None, max_length=128)
+    notes: str | None = Field(default=None, max_length=500)
+    submitted_at: int | None = None
+
+
+class OutcomeFeedbackEvent(BaseModel):
+    """Internal outcome feedback event data model.
+    
+    GUARANTEE: References correlation_id and routing metadata without storing
+    raw conversation text or session tokens.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    feedback_id: str = Field(..., min_length=1, max_length=128)
+    correlation_id: str = Field(..., min_length=1, max_length=128)
+    request_id: str | None = Field(default=None, max_length=128)
+    timestamp: int = Field(default_factory=lambda: int(time.time() * 1000))
+    outcome_type: FeedbackOutcomeType
+    source: FeedbackSource = FeedbackSource.SYSTEM
+    routing_metadata: dict[str, Any] = Field(default_factory=dict)
+    execution_metadata: dict[str, Any] = Field(default_factory=dict)
+    user_feedback: UserFeedbackDetails | None = None
+    privacy_preserving: bool = True
+

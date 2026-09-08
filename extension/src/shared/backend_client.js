@@ -158,6 +158,7 @@
         }
 
         const correlationId = (queryPackage && (queryPackage.correlation_id || queryPackage.request_id)) || null;
+        // Strictly minimal request headers: zero cookies, zero authorization headers, zero session tokens
         const headers = {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -170,7 +171,8 @@
           method: 'POST',
           headers,
           body: JSON.stringify(queryPackage),
-          signal: controller.signal
+          signal: controller.signal,
+          credentials: 'omit' // Privacy requirement: strictly omit cookies, HTTP auth, or session credentials
         });
 
         clearTimeout(timer);

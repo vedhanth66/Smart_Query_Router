@@ -11,7 +11,10 @@ importScripts('/src/shared/telemetry.js');
 importScripts('/src/shared/task_classifier.js');
 importScripts('/src/shared/complexity_scorer_config.js');
 importScripts('/src/shared/complexity_scorer.js');
+importScripts('/src/shared/privacy_config.js');
+importScripts('/src/shared/outcome_feedback.js');
 importScripts('/src/shared/user_settings.js');
+importScripts('/src/shared/optimizer_metrics.js');
 importScripts('/src/shared/routing_policy_config.js');
 importScripts('/src/shared/routing_policy.js');
 importScripts('/src/background/health_tracker.js');
@@ -20,6 +23,10 @@ importScripts('/src/shared/optimizer_pipeline.js');
 
 const EXTENSION_NAME = 'Smart Query Router';
 const EXTENSION_VERSION = '0.1.0';
+
+const metricsTracker = self.SmartQueryRouterMetrics
+  ? self.SmartQueryRouterMetrics.defaultMetricsTracker
+  : null;
 
 const {
   MessageTypes,
@@ -116,17 +123,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         createSuccessResponse({
           status: 'READY',
           version: EXTENSION_VERSION,
-          health: healthTracker.getHealthSummary()
+          health: healthTracker.getHealthSummary(),
+          metrics: metricsTracker ? metricsTracker.getMetricsSummary() : null
         })
       );
       return false;
 
     case MessageTypes.DIAGNOSTICS_REQUEST:
-      // Expose health state, recent dry run actions, and recent sanitized logs strictly to internal diagnostics
+      // Expose health state, recent dry run actions, recent outcome feedback, metrics, and recent sanitized logs strictly to internal diagnostics
       sendResponse(
         createSuccessResponse({
           health: healthTracker.getHealthSummary(),
+          metrics: metricsTracker ? metricsTracker.getMetricsSummary() : null,
           recentDryRunActions: healthTracker.getRecentDryRunActions(),
+          recentOutcomeFeedback: healthTracker.getRecentOutcomeFeedback(),
           recentLogs: logger.getRecentLogs()
         })
       );
@@ -168,6 +178,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             backendCalled: message.payload.action.backendResponse ? message.payload.action.backendResponse.called : false,
             cacheOutcome: message.payload.action.cacheOutcome ? message.payload.action.cacheOutcome.status : null,
             dryRun: true,
+            tabId: redactIdentifier(senderTabId)
+          },
+          senderTabId
+        );
+      }
+      sendResponse(createSuccessResponse({ recorded: true }));
+      return false;
+
+    case MessageTypes.RESPONSE_STATE_UPDATE:
+      logger.debug(
+        EventCategory.QUERY_DETECTION,
+        'Response state transition observed',
+        {
+          state: message.payload.state,
+          correlationId: message.payload.correlationId,
+          failureReason: message.payload.failureReason,
+          durationMs: message.payload.durationMs,
+          tabId: redactIdentifier(senderTabId)
+        },
+        senderTabId
+      );
+      sendResponse(createSuccessResponse({ recorded: true }));
+      return false;
+
+    case MessageTypes.OUTCOME_FEEDBACK:
+      if (message.payload && message.payload.feedback) {
+        healthTracker.recordOutcomeFeedback(message.payload.feedback);
+        logger.info(
+          EventCategory.ROUTING_DECISION,
+          'Outcome feedback recorded',
+          {
+            feedbackId: message.payload.feedback.feedbackId,
+            outcomeType: message.payload.feedback.outcomeType,
+            source: message.payload.feedback.source,
+            correlationId: message.payload.feedback.correlationId,
             tabId: redactIdentifier(senderTabId)
           },
           senderTabId

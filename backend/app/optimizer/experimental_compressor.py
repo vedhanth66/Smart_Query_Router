@@ -62,6 +62,14 @@ PII_CREDENTIAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+ATTACHMENT_REF_PATTERN = re.compile(
+    r"\[(?:Attachment|Image|File|Upload)(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]",
+    re.IGNORECASE,
+)
+
+TABLE_ROW_PATTERN = re.compile(r"^\s*\|.+?\|\s*$", re.MULTILINE)
+ASCII_TABLE_PATTERN = re.compile(r"^\s*[\+\|][-+=]+[\+\|]\s*$", re.MULTILINE)
+
 # Discourse marker and verbose phrase replacements
 DISCOURSE_REPLACEMENTS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"\bin order to\b", re.IGNORECASE), "to", "replace_in_order_to"),
@@ -195,6 +203,21 @@ class SensitivityValidator:
         # 5. PII and credentials
         if PII_CREDENTIAL_PATTERN.search(text):
             reasons.append("HIGH_SENSITIVITY_PII")
+
+        # 6. Attachment / image / file reference detection
+        if (
+            (features and (features.has_attachments or features.has_images or features.has_files or features.has_rich_input))
+            or ATTACHMENT_REF_PATTERN.search(text)
+        ):
+            reasons.append("HIGH_SENSITIVITY_ATTACHMENT_REFERENCE")
+
+        # 7. Table structure detection
+        if (
+            (features and features.has_tables)
+            or TABLE_ROW_PATTERN.search(text)
+            or ASCII_TABLE_PATTERN.search(text)
+        ):
+            reasons.append("HIGH_SENSITIVITY_TABLE")
 
         is_sensitive = len(reasons) > 0
         return is_sensitive, reasons

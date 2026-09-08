@@ -7,10 +7,11 @@ Provides:
 """
 
 import os
+import re
 import time
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import FastAPI, Header, Response, status, HTTPException
+from fastapi import FastAPI, Header, Response, status, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from .schemas.contract import (
     NormalizedQueryPackage,
@@ -27,6 +28,25 @@ from .schemas.contract import (
     LocalFeatures,
     ExperimentalCompressionResult,
     CompressionABComparisonResult,
+    RichContentHandling,
+    OutcomeFeedbackEvent,
+)
+from .schemas.dataset import (
+    CandidateSourceType,
+    ReviewStatus,
+    CandidateRejectionCategory,
+    DatasetSplit,
+    TrainingCandidate,
+    ReviewDecisionRequest,
+    DatasetStatsResponse,
+    CandidateIngestFeedbackRequest,
+    CandidateIngestEscalationRequest,
+)
+from .dataset import (
+    default_dataset_pipeline,
+    default_candidate_repository,
+    CandidateNotFoundError,
+    InvalidReviewStateTransitionError,
 )
 from .gateway import (
     default_gateway,
@@ -161,9 +181,60 @@ async def evaluate_optimization(
             features=package.local_features,
         )
 
+    # Detect rich content and attachment dependencies
+    has_rich = False
+    rich_types: list[str] = []
+    if package.local_features:
+        lf = package.local_features
+        if lf.has_rich_input:
+            has_rich = True
+        if lf.has_attachments:
+            has_rich = True
+            rich_types.append("ATTACHMENT")
+        if lf.has_images:
+            has_rich = True
+            rich_types.append("IMAGE")
+        if lf.has_files:
+            has_rich = True
+            rich_types.append("FILE")
+        if lf.has_tables:
+            has_rich = True
+            rich_types.append("TABLE")
+        if lf.has_code_blocks:
+            has_rich = True
+            rich_types.append("CODE_BLOCK")
+        if lf.attachment_types:
+            for at in lf.attachment_types:
+                if at not in rich_types:
+                    rich_types.append(at)
+
+    # Check query text for attachment markers or tables if not already captured
+    if re.search(r"\[(?:Attachment|Image|File|Upload)(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]", package.query_text, re.I):
+        has_rich = True
+        if "ATTACHMENT" not in rich_types:
+            rich_types.append("ATTACHMENT")
+    if re.search(r"^\s*\|.+?\|\s*$", package.query_text, re.M) or re.search(r"^\s*[\+\|][-+=]+[\+\|]\s*$", package.query_text, re.M):
+        has_rich = True
+        if "TABLE" not in rich_types:
+            rich_types.append("TABLE")
+
+    rich_content_handling = RichContentHandling(
+        has_rich_input=has_rich,
+        detected_types=rich_types,
+        preservation_strategy="CONSERVATIVE_PRESERVATION" if has_rich else "NONE",
+        notes="Conservative routing to complex model with full content preservation" if has_rich else "No rich content detected"
+    )
+
     # Minimal deterministic baseline evaluation (no ML yet)
-    # Check if query is trivial/short pass-through
-    if len(query) < 15 and not package.context_candidates:
+    if has_rich:
+        decision_type = DecisionType.BACKEND_CANDIDATE
+        confidence = 0.90
+        reason_code = "RICH_CONTENT_CANDIDATE"
+        instructions = OptimizationInstructions(
+            suggested_model=None,
+            notes=f"Query depends on rich content ({', '.join(rich_types) if rich_types else 'rich inputs'}); content preservation required"
+        )
+    elif len(query) < 15 and not package.context_candidates:
         decision_type = DecisionType.NO_OPTIMIZATION
         confidence = 0.95
         reason_code = "QUERY_SHORT_PASSTHROUGH"
@@ -187,6 +258,10 @@ async def evaluate_optimization(
     # Deterministic coarse route determination
     if package.coarse_route:
         coarse_route = package.coarse_route
+    elif has_rich:
+        # Queries depending on attachments, images, files, tables, or rich inputs
+        # strictly default to conservative complex-model candidate
+        coarse_route = CoarseRoute.COMPLEX_MODEL_CANDIDATE
     elif package.task_category in [
         TaskCategory.CODING,
         TaskCategory.DEBUGGING,
@@ -793,6 +868,7 @@ async def evaluate_optimization(
         optimization_instructions=instructions,
         query_optimization=query_optimization,
         experimental_compression=experimental_compression,
+        rich_content=rich_content_handling,
         execution_metadata=execution_metadata,
     )
 
@@ -978,6 +1054,197 @@ async def evaluate_compression_ab_comparison(req: CompressionABRequest) -> Compr
         override_config=cfg,
         correlation_id=req.correlation_id,
     )
+
+
+class FeedbackResponse(BaseModel):
+    """Acknowledgement response for ingested feedback."""
+    model_config = ConfigDict(extra="forbid")
+
+    received: bool = True
+    feedback_id: str
+    timestamp: int = Field(default_factory=lambda: int(time.time() * 1000))
+
+
+@app.post(
+    "/api/v1/feedback",
+    response_model=FeedbackResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ingest internal outcome feedback referencing correlation ID and routing metadata"
+)
+async def ingest_outcome_feedback(
+    event: OutcomeFeedbackEvent,
+    response: Response,
+    x_correlation_id: str | None = Header(None, alias="X-Correlation-ID")
+) -> FeedbackResponse:
+    """Ingests outcome feedback (completion, user rejection, bypass, escalation, error).
+    
+    GUARANTEE: Telemetry and quality monitoring only. Never stores or logs raw conversational text.
+    Selected high-signal events (rejections, errors, negative ratings) are staged into the
+    curation pipeline for human review before any evaluation use.
+    """
+    corr = event.correlation_id or x_correlation_id or "unknown"
+    response.headers["X-Correlation-ID"] = corr
+
+    # Staging hook: if this feedback meets selection criteria, stage it for human review
+    if default_dataset_pipeline.should_select_feedback(event):
+        default_dataset_pipeline.convert_feedback_event(
+            event=event,
+            raw_text=None,
+            authorized=False,
+        )
+
+    return FeedbackResponse(
+        received=True,
+        feedback_id=event.feedback_id
+    )
+
+
+# -----------------------------------------------------------------------------
+# Dataset Curation & Offline Evaluation Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post(
+    "/api/v1/dataset/candidates/from-feedback",
+    response_model=TrainingCandidate | None,
+    status_code=status.HTTP_200_OK,
+    summary="Stage a candidate from an outcome feedback event"
+)
+async def stage_candidate_from_feedback(
+    req: CandidateIngestFeedbackRequest,
+) -> TrainingCandidate | None:
+    """Selects, sanitizes, and stages feedback into the candidate pool for human review.
+    
+    GUARANTEE: Text snippets are discarded unless authorized_for_eval is True.
+    """
+    return default_dataset_pipeline.convert_feedback_event(
+        event=req.event,
+        raw_text=req.raw_text,
+        authorized=req.authorized_for_eval,
+        force_select=False,
+    )
+
+
+@app.post(
+    "/api/v1/dataset/candidates/from-escalation",
+    response_model=TrainingCandidate | None,
+    status_code=status.HTTP_200_OK,
+    summary="Stage a candidate from an escalation execution record"
+)
+async def stage_candidate_from_escalation(
+    req: CandidateIngestEscalationRequest,
+) -> TrainingCandidate | None:
+    """Selects, sanitizes, and stages escalation record into candidate pool for human review."""
+    return default_dataset_pipeline.convert_escalation_record(
+        correlation_id=req.correlation_id,
+        route_metadata=req.route_metadata,
+        query_text=req.query_text,
+        task_category=req.task_category,
+        authorized=req.authorized_for_eval,
+        force_select=False,
+    )
+
+
+@app.get(
+    "/api/v1/dataset/candidates",
+    response_model=list[TrainingCandidate],
+    summary="List candidates staged in the curation pipeline"
+)
+async def list_candidates(
+    review_status: ReviewStatus | None = Query(None, alias="status"),
+    source_type: CandidateSourceType | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[TrainingCandidate]:
+    """Lists candidate records with optional status and source filtering."""
+    return default_candidate_repository.list_candidates(
+        status=review_status,
+        source_type=source_type,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get(
+    "/api/v1/dataset/candidates/{candidate_id}",
+    response_model=TrainingCandidate,
+    summary="Get candidate details by ID"
+)
+async def get_candidate(candidate_id: str) -> TrainingCandidate:
+    """Retrieves candidate record by ID."""
+    candidate = default_candidate_repository.get_candidate(candidate_id)
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Candidate '{candidate_id}' not found"
+        )
+    return candidate
+
+
+@app.post(
+    "/api/v1/dataset/candidates/{candidate_id}/review",
+    response_model=TrainingCandidate,
+    summary="Apply human review decision to approve or reject candidate"
+)
+async def review_candidate(
+    candidate_id: str,
+    decision: ReviewDecisionRequest,
+) -> TrainingCandidate:
+    """Manual review boundary: Approves or rejects a staged candidate.
+    
+    Rejections allow categorizing items as PRIVACY_RISK, LOW_QUALITY, etc.
+    Only approved candidates can be exported into training or evaluation sets.
+    """
+    try:
+        return default_candidate_repository.review_candidate(candidate_id, decision)
+    except CandidateNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Candidate '{candidate_id}' not found"
+        )
+    except InvalidReviewStateTransitionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@app.get(
+    "/api/v1/dataset/export",
+    summary="Export approved dataset records for authorized offline evaluation"
+)
+async def export_approved_dataset(
+    split: DatasetSplit | None = Query(None),
+    format: str = Query("jsonl", pattern="^(jsonl|json)$"),
+) -> Response:
+    """Exports ONLY candidates that have passed human review (review_status=APPROVED).
+    
+    GUARANTEES:
+    1. Strictly excludes rejected and pending review items.
+    2. Decoupled from online training: never triggers automated model training.
+    """
+    import json
+    exported = default_candidate_repository.export_approved(split=split, format=format)
+    if format == "json":
+        return Response(
+            content=json.dumps(exported),
+            media_type="application/json"
+        )
+    return Response(
+        content=str(exported),
+        media_type="application/x-ndjson"
+    )
+
+
+@app.get(
+    "/api/v1/dataset/stats",
+    response_model=DatasetStatsResponse,
+    summary="Get candidate curation pipeline statistics"
+)
+async def get_dataset_stats() -> DatasetStatsResponse:
+    """Returns candidate counts across review statuses, sources, and dataset splits."""
+    return default_candidate_repository.get_stats()
+
+
 
 
 

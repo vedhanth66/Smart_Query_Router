@@ -210,6 +210,20 @@ class SemanticEligibilityPolicy(BaseSemanticEligibilityPolicy):
                 required_similarity_threshold=threshold,
             )
 
+        # 9. Rich content / attachments check
+        if package.local_features and (
+            package.local_features.has_rich_input
+            or package.local_features.has_attachments
+            or package.local_features.has_images
+            or package.local_features.has_files
+            or package.local_features.has_tables
+        ):
+            return SemanticEligibilityDecision(
+                is_eligible=False,
+                bypass_reason="BYPASS_RICH_CONTENT_ATTACHMENTS",
+                required_similarity_threshold=threshold,
+            )
+
         # All criteria satisfied: eligible static informational query!
         return SemanticEligibilityDecision(
             is_eligible=True,

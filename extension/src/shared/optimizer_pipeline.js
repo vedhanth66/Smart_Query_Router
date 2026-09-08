@@ -179,33 +179,63 @@
     const activeRoutingPolicy = routingPolicy || (routingPolicyDep && routingPolicyDep.defaultRoutingPolicy) || (globalThis.SmartQueryRouterRoutingPolicy && globalThis.SmartQueryRouterRoutingPolicy.defaultRoutingPolicy) || null;
 
     // 1. Detection: Normalization & Local Feature Extraction
-    const normalizerResult = normalizerModule
-      ? normalizerModule.normalize(promptText)
-      : { normalizedText: promptText.trim(), originalText: promptText, wasModified: false };
+    let queryText = promptText.trim();
+    let isNormalized = false;
+    if (normalizerModule) {
+      if (typeof normalizerModule.normalizeQuery === 'function') {
+        const normRes = normalizerModule.normalizeQuery(promptText);
+        queryText = normRes.normalizedPrompt || queryText;
+        isNormalized = Boolean(normRes.isChanged);
+      } else if (typeof normalizerModule.normalizeQueryText === 'function') {
+        queryText = normalizerModule.normalizeQueryText(promptText);
+        isNormalized = queryText !== promptText;
+      }
+    }
 
-    const queryText = normalizerResult.normalizedText;
-    const features = featureExtractorModule
-      ? featureExtractorModule.extractFeatures(queryText)
-      : {
+    let features = null;
+    if (featureExtractorModule && typeof featureExtractorModule.extractQueryFeatures === 'function') {
+      features = featureExtractorModule.extractQueryFeatures(queryText);
+    } else {
+      features = {
+        length: {
           characterCount: queryText.length,
           wordCount: queryText.split(/\s+/).filter(Boolean).length,
-          hasCode: false,
-          hasMath: false,
-          hasQuestions: false,
-          hasUrls: false,
-          isNormalized: normalizerResult.wasModified,
-          detectedCues: []
-        };
+          estimatedTokens: Math.ceil(queryText.length / 4)
+        },
+        code: { hasCodeSyntax: false },
+        math: { hasMathSymbols: false },
+        questions: { questionCount: 0 },
+        urls: { hasUrl: false },
+        cues: { hasComparisonCue: false, hasReasoningCue: false, detectedCues: [] }
+      };
+    }
+
+    const charCount = (features && features.length && typeof features.length.characterCount === 'number')
+      ? features.length.characterCount
+      : queryText.length;
+    const wordCount = (features && features.length && typeof features.length.wordCount === 'number')
+      ? features.length.wordCount
+      : queryText.split(/\s+/).filter(Boolean).length;
 
     // Task Classification
-    const taskClassification = taskClassifierModule
-      ? taskClassifierModule.classifyTask(queryText, features)
-      : { category: 'unknown', confidence: 0.0, detectedCues: [], isFallback: true };
+    let taskClassification = { category: 'unknown', confidence: 0.0, matchedSignals: [] };
+    if (taskClassifierModule) {
+      if (typeof taskClassifierModule.classifyTask === 'function') {
+        taskClassification = taskClassifierModule.classifyTask(queryText, features);
+      } else if (taskClassifierModule.defaultTaskClassifier && typeof taskClassifierModule.defaultTaskClassifier.classifyTask === 'function') {
+        taskClassification = taskClassifierModule.defaultTaskClassifier.classifyTask(queryText, features);
+      }
+    }
 
     // Complexity Scoring
-    const complexity = complexityScorerModule
-      ? complexityScorerModule.scoreComplexity(queryText, features, taskClassification.category)
-      : { score: 0.5, level: 'MEDIUM', dominantFactors: [] };
+    let complexity = { score: 0.5, level: 'MEDIUM', matchedFactors: [] };
+    if (complexityScorerModule) {
+      if (typeof complexityScorerModule.scoreComplexity === 'function') {
+        complexity = complexityScorerModule.scoreComplexity(queryText, features, null, taskClassification);
+      } else if (complexityScorerModule.defaultComplexityScorer && typeof complexityScorerModule.defaultComplexityScorer.scoreComplexity === 'function') {
+        complexity = complexityScorerModule.defaultComplexityScorer.scoreComplexity(queryText, features, null, taskClassification);
+      }
+    }
 
     // Bounded Deduplication Check
     let dedupAccepted = true;
@@ -247,7 +277,11 @@
       : 'automatic';
 
     let localDecision = null;
-    if (decisionEngine && typeof decisionEngine.evaluate === 'function') {
+    const isLocalRulesActive = userSettingsManager && typeof userSettingsManager.isOptimizationCategoryEnabled === 'function'
+      ? userSettingsManager.isOptimizationCategoryEnabled('localRules')
+      : true;
+
+    if (isLocalRulesActive && decisionEngine && typeof decisionEngine.evaluate === 'function') {
       localDecision = decisionEngine.evaluate({
         rawPrompt: promptText,
         normalizedPrompt: queryText,
@@ -308,7 +342,9 @@
         extension_version: '0.1.0',
         client_type: 'chrome_extension',
         schema_version: '1.0',
-        hostname: safeContext.hostname || 'claude.ai'
+        hostname: (safeContext && safeContext.hostname)
+          ? String(safeContext.hostname).replace(/[:/\\?#].*$/, '')
+          : 'claude.ai'
       }
     };
 
@@ -366,13 +402,13 @@
       requestId,
       correlationId,
       querySummary: {
-        characterCount: features.characterCount,
-        wordCount: features.wordCount
+        characterCount: charCount,
+        wordCount: wordCount
       },
       detection: {
         trigger: triggerSource,
-        characterCount: features.characterCount,
-        wordCount: features.wordCount,
+        characterCount: charCount,
+        wordCount: wordCount,
         taskCategory: taskClassification.category,
         taskConfidence: taskClassification.confidence,
         complexityScore: complexity.score,
@@ -444,7 +480,11 @@
 
     // 7. Telemetry Performance Record
     let telemetryRecord = null;
-    if (telemetryModule && typeof telemetryModule.createPerformanceRecord === 'function') {
+    const isTelemetryActive = userSettingsManager && typeof userSettingsManager.isTelemetryEnabled === 'function'
+      ? userSettingsManager.isTelemetryEnabled('performanceMetrics')
+      : true;
+
+    if (isTelemetryActive && telemetryModule && typeof telemetryModule.createPerformanceRecord === 'function') {
       telemetryRecord = telemetryModule.createPerformanceRecord({
         correlationId,
         clientTimestamp: now,

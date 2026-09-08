@@ -33,10 +33,16 @@ assert.strictEqual(DEFAULT_USER_SETTINGS.routingOverride, UserRoutingOverride.AU
 assert.strictEqual(DEFAULT_USER_SETTINGS.routingOverride, 'automatic');
 assert.strictEqual(DEFAULT_USER_SETTINGS.dryRunMode, false);
 assert.strictEqual(DEFAULT_USER_SETTINGS.backendEnabled, true);
+assert.strictEqual(DEFAULT_USER_SETTINGS.optimizationEnabled, true);
+assert.strictEqual(DEFAULT_USER_SETTINGS.feedbackUiEnabled, true);
+assert.strictEqual(DEFAULT_USER_SETTINGS.developerDiagnosticsEnabled, false);
 assert.strictEqual(defaultUserSettingsManager.getRoutingOverride(), 'automatic');
 assert.strictEqual(defaultUserSettingsManager.isDryRunMode(), false);
 assert.strictEqual(defaultUserSettingsManager.isBackendEnabled(), true);
-console.log('PASS: Default settings default to automatic routing, dryRunMode OFF, and backendEnabled ON verified');
+assert.strictEqual(defaultUserSettingsManager.isOptimizationEnabled(), true);
+assert.strictEqual(defaultUserSettingsManager.isFeedbackUiEnabled(), true);
+assert.strictEqual(defaultUserSettingsManager.isDeveloperDiagnosticsEnabled(), false);
+console.log('PASS: Default settings default to automatic routing, dryRunMode OFF, backendEnabled ON, optimizationEnabled ON, feedbackUiEnabled ON, and developerDiagnosticsEnabled OFF verified');
 
 // Test 2: Verifying UserRoutingOverride enum
 console.log('Test 2: Verifying UserRoutingOverride enum values...');
@@ -54,8 +60,11 @@ assert.strictEqual(valid1.valid, true);
 const valid2 = validateUserSettings({ version: '1.0.0', routingOverride: 'prefer-simple' });
 assert.strictEqual(valid2.valid, true);
 
-const valid3 = validateUserSettings({ version: '1.0.0', routingOverride: 'prefer-strong' });
+const valid3 = validateUserSettings({ version: '1.0.0', routingOverride: 'prefer-strong', feedbackUiEnabled: false });
 assert.strictEqual(valid3.valid, true);
+
+const valid4 = validateUserSettings({ version: '1.0.0', routingOverride: 'automatic', developerDiagnosticsEnabled: true });
+assert.strictEqual(valid4.valid, true);
 
 const invalid1 = validateUserSettings(null);
 assert.strictEqual(invalid1.valid, false);
@@ -69,6 +78,12 @@ assert.ok(invalid3.error.includes('prefer-fastest'));
 
 const invalid4 = validateUserSettings({ version: '1.0.0', routingOverride: 123 });
 assert.strictEqual(invalid4.valid, false);
+
+const invalid5 = validateUserSettings({ version: '1.0.0', feedbackUiEnabled: 'invalid' });
+assert.strictEqual(invalid5.valid, false);
+
+const invalid6 = validateUserSettings({ version: '1.0.0', developerDiagnosticsEnabled: 'invalid' });
+assert.strictEqual(invalid6.valid, false);
 console.log('PASS: Schema validation correctly handles valid and invalid settings');
 
 // Test 4: createUserSettings factory
@@ -108,9 +123,21 @@ assert.strictEqual(manager.isDryRunMode(), true);
 manager.setBackendEnabled(false);
 assert.strictEqual(manager.isBackendEnabled(), false);
 
+manager.setOptimizationEnabled(false);
+assert.strictEqual(manager.isOptimizationEnabled(), false);
+
+manager.setFeedbackUiEnabled(false);
+assert.strictEqual(manager.isFeedbackUiEnabled(), false);
+
+manager.setDeveloperDiagnosticsEnabled(true);
+assert.strictEqual(manager.isDeveloperDiagnosticsEnabled(), true);
+
 manager.reset();
 assert.strictEqual(manager.isDryRunMode(), false);
 assert.strictEqual(manager.isBackendEnabled(), true);
+assert.strictEqual(manager.isOptimizationEnabled(), true);
+assert.strictEqual(manager.isFeedbackUiEnabled(), true);
+assert.strictEqual(manager.isDeveloperDiagnosticsEnabled(), false);
 console.log('PASS: In-memory CRUD operations verified');
 
 // Test 6: Storage persistence and async load

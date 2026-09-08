@@ -11,6 +11,10 @@
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*"
   ],
+  "action": {
+    "default_title": "Smart Query Router",
+    "default_popup": "src/popup/popup.html"
+  },
   "background": {
     "service_worker": "src/background/service_worker.js"
   },
@@ -40,10 +44,17 @@
         "src/shared/experimental_summarizer.js",
         "src/shared/backend_client.js",
         "src/shared/telemetry.js",
+        "src/shared/privacy_config.js",
+        "src/shared/outcome_feedback.js",
         "src/shared/user_settings.js",
+        "src/shared/optimizer_metrics.js",
         "src/shared/routing_policy_config.js",
         "src/shared/routing_policy.js",
         "src/shared/optimizer_pipeline.js",
+        "src/content/ui_substitution.js",
+        "src/content/response_state_tracker.js",
+        "src/content/feedback_ui.js",
+        "src/content/status_surface.js",
         "src/content/claude_interceptor.js"
       ],
       "run_at": "document_idle"

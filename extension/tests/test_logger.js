@@ -50,9 +50,15 @@ const sensitivePayload = {
   cookie: 'session_id=secret123',
   token: 'Bearer sk-ant-secret-token',
   prompt: 'Can you solve this private coding problem?',
+  conversationId: 'chat-uuid-12345',
+  sessionId: 'sess-abc-789',
+  authToken: 'secret-token-xyz',
+  query_text: 'sensitive query',
+  apiKey: 'key-123',
   nested: {
     authorization: 'Bearer token456',
     query: 'select * from users',
+    rawPrompt: 'nested secret prompt',
     safeCount: 42
   }
 };
@@ -63,11 +69,17 @@ assert.strictEqual(sanitized.cookie, '[REDACTED]');
 assert.strictEqual(sanitized.token, '[REDACTED]');
 assert.strictEqual(sanitized.prompt, '[REDACTED]');
 assert.strictEqual(sanitized.prompt_length, 42); // Records length metric only
+assert.strictEqual(sanitized.conversationId, '[REDACTED]');
+assert.strictEqual(sanitized.sessionId, '[REDACTED]');
+assert.strictEqual(sanitized.authToken, '[REDACTED]');
+assert.strictEqual(sanitized.query_text, '[REDACTED]');
+assert.strictEqual(sanitized.apiKey, '[REDACTED]');
 assert.strictEqual(sanitized.nested.authorization, '[REDACTED]');
 assert.strictEqual(sanitized.nested.query, '[REDACTED]');
 assert.strictEqual(sanitized.nested.query_length, 19);
+assert.strictEqual(sanitized.nested.rawPrompt, '[REDACTED]');
 assert.strictEqual(sanitized.nested.safeCount, 42);
-console.log('PASS: Zero raw query text, cookies, or tokens exposed');
+console.log('PASS: Zero raw query text, cookies, or tokens exposed (including compound keys)');
 
 // Test 4: Quiet by default in production
 console.log('Test 4: Quiet by default behavior...');

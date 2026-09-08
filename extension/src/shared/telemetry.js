@@ -94,13 +94,68 @@
     return options.debugMode === true || options.environment === 'development';
   }
 
+  // Always forbidden keys in telemetry debug metadata (purged even in dev/debug mode)
+  const FORBIDDEN_DEBUG_KEY_PATTERN = /(cookie|token|auth|authorization|bearer|password|secret|session|jwt|credential|apikey)/i;
+  const FORBIDDEN_PAGE_DATA_PATTERN = /(url|href|pathname|search|hash)/i;
+
+  // Raw conversation/prompt keys (purged unless explicitly enabled for user-initiated debugging)
+  const RAW_CONVERSATION_KEY_PATTERN = /(prompt|query_text|raw_query|rawquery|conversation|turn_content)/i;
+
+  /**
+   * Sanitizes debug metadata for development diagnostic traces.
+   * STRICT GUARANTEES:
+   * - Cookies, authentication tokens, passwords, secrets, session IDs, and full page data are ALWAYS purged.
+   * - Raw query and conversation text are ELIMINATED by default, and ONLY included
+   *   if explicitly requested via options.allowRawConversationText === true (user-initiated debugging path).
+   * 
+   * @param {any} value
+   * @param {object} [options]
+   * @param {number} [depth]
+   * @returns {any}
+   */
+  function sanitizeDebugMetadata(value, options = {}, depth = 0) {
+    if (depth > 5) return '[MAX_DEPTH]';
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'object') return value;
+
+    if (Array.isArray(value)) {
+      return value.map((item) => sanitizeDebugMetadata(item, options, depth + 1));
+    }
+
+    const allowRawText = Boolean(options && options.allowRawConversationText === true);
+    const sanitized = {};
+
+    for (const [k, v] of Object.entries(value)) {
+      // 1. Always purge forbidden keys (cookies, auth, session IDs, passwords, secrets, page URLs)
+      if (FORBIDDEN_DEBUG_KEY_PATTERN.test(k) || FORBIDDEN_PAGE_DATA_PATTERN.test(k)) {
+        continue;
+      }
+
+      // 2. Eliminate raw query and conversation text unless user explicitly enabled it
+      if (!allowRawText && RAW_CONVERSATION_KEY_PATTERN.test(k)) {
+        continue;
+      }
+
+      // 3. Recursively sanitize nested structures
+      if (v !== null && typeof v === 'object') {
+        sanitized[k] = sanitizeDebugMetadata(v, options, depth + 1);
+      } else {
+        sanitized[k] = v;
+      }
+    }
+
+    return sanitized;
+  }
+
   /**
    * Creates a structured performance evaluation telemetry record.
    * 
    * GUARANTEES:
    * - Never includes query_text, prompt strings, or conversation snippets in production records.
    * - In production, debug_metadata is strictly null.
-   * - In development debug mode (opt-in), provides non-production diagnostic traces.
+   * - In development debug mode (opt-in), provides sanitized non-production diagnostic traces.
+   * - Cookies, authentication tokens, and session identifiers are ALWAYS purged from debug metadata.
+   * - Raw conversation text in debug metadata is ELIMINATED unless explicitly permitted via options.allowRawConversationText.
    * 
    * @param {object} params
    * @param {string} params.correlationId - Correlation ID matching request
@@ -162,7 +217,7 @@
         versionIdentifiers
       ),
       debug_metadata: isDev && debugTrace && typeof debugTrace === 'object'
-        ? Object.assign({}, debugTrace)
+        ? sanitizeDebugMetadata(debugTrace, options)
         : null
     };
 
@@ -176,6 +231,7 @@
     bucketCharacterCount,
     extractSafeFeatureSummary,
     isDebugModeEnabled,
+    sanitizeDebugMetadata,
     createPerformanceRecord
   };
 });

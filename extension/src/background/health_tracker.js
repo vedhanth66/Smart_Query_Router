@@ -32,6 +32,8 @@
       this.lastAuditTime = Date.now();
       this.dryRunActions = [];
       this.maxDryRunActions = 20;
+      this.outcomeFeedback = [];
+      this.maxOutcomeFeedback = 50;
     }
 
     /**
@@ -97,9 +99,30 @@
         connectedTabsCount: activeTabs.length,
         activeTabs,
         dryRunActionsCount: this.dryRunActions.length,
+        outcomeFeedbackCount: this.outcomeFeedback.length,
         uptimeMs: Date.now() - this.startTime,
         lastCheckedAt: Date.now()
       };
+    }
+
+    /**
+     * Record an outcome feedback event
+     * @param {object} feedback OutcomeFeedback
+     */
+    recordOutcomeFeedback(feedback) {
+      if (!feedback) return;
+      this.outcomeFeedback.unshift(feedback);
+      if (this.outcomeFeedback.length > this.maxOutcomeFeedback) {
+        this.outcomeFeedback.length = this.maxOutcomeFeedback;
+      }
+    }
+
+    /**
+     * Get recent outcome feedback events (most recent first)
+     * @returns {Array<object>}
+     */
+    getRecentOutcomeFeedback() {
+      return [...this.outcomeFeedback];
     }
 
     /**

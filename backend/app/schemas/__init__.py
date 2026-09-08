@@ -20,6 +20,11 @@ from .contract import (
     CacheOutcome,
     ErrorCategory,
     PerformanceTelemetryRecord,
+    FeedbackOutcomeType,
+    FeedbackSource,
+    UserRating,
+    UserFeedbackDetails,
+    OutcomeFeedbackEvent,
 )
 from .evaluator import (
     EscalationRecommendation,
@@ -29,6 +34,18 @@ from .evaluator import (
     EvaluationIssue,
     EvaluationRequest,
     EvaluationResult,
+)
+from .dataset import (
+    CandidateSourceType,
+    ReviewStatus,
+    CandidateRejectionCategory,
+    DatasetSplit,
+    SanitizedCandidateMetadata,
+    TrainingCandidate,
+    ReviewDecisionRequest,
+    DatasetStatsResponse,
+    CandidateIngestFeedbackRequest,
+    CandidateIngestEscalationRequest,
 )
 
 __all__ = [
@@ -52,6 +69,11 @@ __all__ = [
     "CacheOutcome",
     "ErrorCategory",
     "PerformanceTelemetryRecord",
+    "FeedbackOutcomeType",
+    "FeedbackSource",
+    "UserRating",
+    "UserFeedbackDetails",
+    "OutcomeFeedbackEvent",
     "EscalationRecommendation",
     "IssueSeverity",
     "IssueCategory",
@@ -59,4 +81,14 @@ __all__ = [
     "EvaluationIssue",
     "EvaluationRequest",
     "EvaluationResult",
+    "CandidateSourceType",
+    "ReviewStatus",
+    "CandidateRejectionCategory",
+    "DatasetSplit",
+    "SanitizedCandidateMetadata",
+    "TrainingCandidate",
+    "ReviewDecisionRequest",
+    "DatasetStatsResponse",
+    "CandidateIngestFeedbackRequest",
+    "CandidateIngestEscalationRequest",
 ]

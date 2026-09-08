@@ -107,7 +107,7 @@
    * @param {string} params.triggerType - 'keyboard_enter' | 'button_click' | 'unknown'
    * @param {object} [params.context] - Safe page context
    */
-  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {}, correlationId = null, userOverride = 'automatic' }) {
+  function createDetectedQueryEvent({ rawPrompt, triggerType = 'unknown', context = {}, correlationId = null, userOverride = 'automatic', domAttachments = null }) {
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).slice(2, 9);
     const eventId = `evt_${timestamp}_${randomSuffix}`;
@@ -123,7 +123,7 @@
 
     // Extract non-generative local features (heuristic signals, not final truth)
     const features = featureExtractorModule && featureExtractorModule.extractQueryFeatures
-      ? featureExtractorModule.extractQueryFeatures(normalized || raw)
+      ? featureExtractorModule.extractQueryFeatures(normalized || raw, { domAttachments })
       : null;
 
     // First-pass context-dependency assessment (signals whether more context analysis is needed)
@@ -225,7 +225,7 @@
       correlationId: queryEvent.metadata.correlationId || null,
       timestamp: queryEvent.metadata.timestamp,
       triggerType: queryEvent.metadata.triggerType,
-      conversationId: queryEvent.context ? queryEvent.context.conversationId : null,
+      // Note: conversationId omitted to prevent session identifier leakage in summaries/telemetry
       characterCount: queryEvent.content ? queryEvent.content.characterCount : 0,
       normalizedCharacterCount: queryEvent.content ? queryEvent.content.normalizedCharacterCount : 0,
       isNormalized: queryEvent.content ? Boolean(queryEvent.content.isNormalized) : false,
@@ -242,7 +242,9 @@
         hasMath: queryEvent.features.math ? queryEvent.features.math.hasMathSymbols : false,
         hasUrl: queryEvent.features.urls ? queryEvent.features.urls.hasUrl : false,
         hasComparisonCue: queryEvent.features.cues ? queryEvent.features.cues.hasComparisonCue : false,
-        hasReasoningCue: queryEvent.features.cues ? queryEvent.features.cues.hasReasoningCue : false
+        hasReasoningCue: queryEvent.features.cues ? queryEvent.features.cues.hasReasoningCue : false,
+        hasRichInput: (queryEvent.features.richContent) ? queryEvent.features.richContent.hasRichInput : false,
+        richTypes: (queryEvent.features.richContent) ? queryEvent.features.richContent.types : []
       } : null,
       optimizationStatus: queryEvent.optimization ? queryEvent.optimization.status : 'PENDING',
       coarseRoute: queryEvent.routing ? queryEvent.routing.route : null,

@@ -42,10 +42,11 @@
     FAILURE: 'FAILURE'
   });
 
-  // Keys that must NEVER be logged in raw form
-  const SENSITIVE_KEY_PATTERN = /^(cookie|token|auth|authorization|password|secret|session|sessionid|jwt|key|credential|conversation|prompt|query|text|input)$/i;
+  // Keys that must NEVER be logged in raw form (matches exact or compound variations)
+  const SENSITIVE_KEY_PATTERN = /^(cookie.*|.*token.*|.*auth.*|.*authorization.*|password|secret.*|session.*|jwt|credential.*|conversation.*|prompt.*|rawprompt.*|raw_prompt.*|query.*|raw_.*|^text$|^input$|apikey.*|api_key.*|^key$)$/i;
 
   const MAX_RING_BUFFER_SIZE = 100;
+  const DEFAULT_LOG_RETENTION_TTL_MS = 300_000; // 5 minutes max in-memory log retention
 
   /**
    * Redact identifiers for safe correlation
@@ -103,6 +104,7 @@
       this.prefix = options.prefix || '[Smart Query Router]';
       this.ringBuffer = [];
       this.maxBufferSize = options.maxBufferSize || MAX_RING_BUFFER_SIZE;
+      this.retentionTtlMs = options.retentionTtlMs !== undefined ? Math.max(10, options.retentionTtlMs) : DEFAULT_LOG_RETENTION_TTL_MS;
       this.enableConsole = options.enableConsole !== undefined ? options.enableConsole : true;
     }
 
@@ -116,14 +118,28 @@
       return this.currentLevel;
     }
 
+    /**
+     * Prune log entries older than retentionTtlMs
+     * @param {number} [now]
+     * @returns {number} Count pruned
+     */
+    pruneExpiredEntries(now = Date.now()) {
+      const initial = this.ringBuffer.length;
+      this.ringBuffer = this.ringBuffer.filter((e) => now - e.timestamp <= this.retentionTtlMs);
+      return initial - this.ringBuffer.length;
+    }
+
     _record(level, category, message, metadata, correlationId) {
+      const now = Date.now();
+      this.pruneExpiredEntries(now);
+
       // Validate category
       const validCategory = Object.values(EventCategory).includes(category)
         ? category
         : EventCategory.FAILURE;
 
       const entry = {
-        timestamp: Date.now(),
+        timestamp: now,
         level: LogLevelNames[level] || 'UNKNOWN',
         category: validCategory,
         correlationId: correlationId ? redactIdentifier(correlationId) : null,
@@ -184,6 +200,7 @@
     }
 
     getRecentLogs() {
+      this.pruneExpiredEntries();
       return [...this.ringBuffer];
     }
 

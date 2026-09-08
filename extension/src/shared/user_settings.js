@@ -16,12 +16,18 @@
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    let privacyModule = null;
+    try {
+      privacyModule = require('./privacy_config');
+    } catch (_) {}
+    module.exports = factory(privacyModule);
   } else {
-    root.SmartQueryRouterUserSettings = factory();
+    root.SmartQueryRouterUserSettings = factory(root.SmartQueryRouterPrivacyConfig);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (privacyConfigModule) {
   'use strict';
+
+  const privacyModule = privacyConfigModule || (typeof globalThis !== 'undefined' && globalThis.SmartQueryRouterPrivacyConfig) || null;
 
   /**
    * User routing override values
@@ -32,6 +38,39 @@
     PREFER_STRONG: 'prefer-strong'
   });
 
+  const DEFAULT_PRIVACY = (privacyModule && privacyModule.DEFAULT_PRIVACY_CONFIG) ? privacyModule.DEFAULT_PRIVACY_CONFIG : Object.freeze({
+    version: '1.0.0',
+    telemetry: Object.freeze({
+      enabled: true,
+      performanceMetrics: true,
+      errorMetrics: true,
+      featureMetrics: true,
+      allowRawConversationText: false
+    }),
+    diagnostics: Object.freeze({
+      enabled: true,
+      logQueryDetection: true,
+      logRoutingDecisions: true,
+      logFailures: true,
+      consoleOutput: false,
+      retentionTtlMs: 300_000,
+      maxEntries: 50
+    }),
+    optimization: Object.freeze({
+      localRules: true,
+      promptNormalization: true,
+      contextPruning: true,
+      backendRouting: true,
+      allowUiSubstitution: true
+    }),
+    retention: Object.freeze({
+      maxTurnHistory: 4,
+      turnSnippetMaxChars: 300,
+      turnRetentionTtlMs: 900_000,
+      transientEventTtlMs: 60_000
+    })
+  });
+
   /**
    * Default user settings configuration
    */
@@ -39,7 +78,11 @@
     version: '1.0.0',
     routingOverride: UserRoutingOverride.AUTOMATIC,
     dryRunMode: false,
-    backendEnabled: true
+    backendEnabled: true,
+    optimizationEnabled: true,
+    feedbackUiEnabled: true,
+    developerDiagnosticsEnabled: false,
+    privacy: DEFAULT_PRIVACY
   });
 
   const STORAGE_KEY = 'smart_query_router_user_settings';
@@ -74,6 +117,29 @@
       return { valid: false, error: 'backendEnabled must be a boolean if provided' };
     }
 
+    if (settings.optimizationEnabled !== undefined && typeof settings.optimizationEnabled !== 'boolean') {
+      return { valid: false, error: 'optimizationEnabled must be a boolean if provided' };
+    }
+
+    if (settings.feedbackUiEnabled !== undefined && typeof settings.feedbackUiEnabled !== 'boolean') {
+      return { valid: false, error: 'feedbackUiEnabled must be a boolean if provided' };
+    }
+
+    if (settings.developerDiagnosticsEnabled !== undefined && typeof settings.developerDiagnosticsEnabled !== 'boolean') {
+      return { valid: false, error: 'developerDiagnosticsEnabled must be a boolean if provided' };
+    }
+
+    if (settings.privacy !== undefined) {
+      if (privacyModule && typeof privacyModule.validatePrivacyConfig === 'function') {
+        const pVal = privacyModule.validatePrivacyConfig(settings.privacy);
+        if (!pVal.valid) {
+          return { valid: false, error: `Invalid privacy settings: ${pVal.error}` };
+        }
+      } else if (typeof settings.privacy !== 'object' || settings.privacy === null || Array.isArray(settings.privacy)) {
+        return { valid: false, error: 'privacy must be an object' };
+      }
+    }
+
     return { valid: true };
   }
 
@@ -99,7 +165,19 @@
         : (DEFAULT_USER_SETTINGS.dryRunMode || false),
       backendEnabled: typeof overrides.backendEnabled === 'boolean'
         ? overrides.backendEnabled
-        : (DEFAULT_USER_SETTINGS.backendEnabled !== undefined ? DEFAULT_USER_SETTINGS.backendEnabled : true)
+        : (DEFAULT_USER_SETTINGS.backendEnabled !== undefined ? DEFAULT_USER_SETTINGS.backendEnabled : true),
+      optimizationEnabled: typeof overrides.optimizationEnabled === 'boolean'
+        ? overrides.optimizationEnabled
+        : (DEFAULT_USER_SETTINGS.optimizationEnabled !== undefined ? DEFAULT_USER_SETTINGS.optimizationEnabled : true),
+      feedbackUiEnabled: typeof overrides.feedbackUiEnabled === 'boolean'
+        ? overrides.feedbackUiEnabled
+        : (DEFAULT_USER_SETTINGS.feedbackUiEnabled !== undefined ? DEFAULT_USER_SETTINGS.feedbackUiEnabled : true),
+      developerDiagnosticsEnabled: typeof overrides.developerDiagnosticsEnabled === 'boolean'
+        ? overrides.developerDiagnosticsEnabled
+        : (DEFAULT_USER_SETTINGS.developerDiagnosticsEnabled !== undefined ? DEFAULT_USER_SETTINGS.developerDiagnosticsEnabled : false),
+      privacy: (privacyModule && typeof privacyModule.createPrivacyConfig === 'function')
+        ? privacyModule.createPrivacyConfig(overrides.privacy || {})
+        : (overrides.privacy && typeof overrides.privacy === 'object' ? Object.freeze({ ...DEFAULT_PRIVACY, ...overrides.privacy }) : DEFAULT_PRIVACY)
     };
 
     const validation = validateUserSettings(merged);
@@ -188,6 +266,136 @@
      */
     async setBackendEnabled(enabled) {
       return this.updateSettings({ backendEnabled: Boolean(enabled) });
+    }
+
+    /**
+     * Returns whether active prompt optimization is enabled (defaults to true)
+     * @returns {boolean}
+     */
+    isOptimizationEnabled() {
+      return this.currentSettings.optimizationEnabled !== false;
+    }
+
+    /**
+     * Toggle or set prompt optimization specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setOptimizationEnabled(enabled) {
+      return this.updateSettings({ optimizationEnabled: Boolean(enabled) });
+    }
+
+    /**
+     * Returns whether the optional feedback UI is enabled (defaults to true)
+     * @returns {boolean}
+     */
+    isFeedbackUiEnabled() {
+      return this.currentSettings.feedbackUiEnabled !== false;
+    }
+
+    /**
+     * Toggle or set the optional feedback UI specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setFeedbackUiEnabled(enabled) {
+      return this.updateSettings({ feedbackUiEnabled: Boolean(enabled) });
+    }
+
+    /**
+     * Returns whether developer diagnostics view is enabled (defaults to false)
+     * @returns {boolean}
+     */
+    isDeveloperDiagnosticsEnabled() {
+      return Boolean(this.currentSettings.developerDiagnosticsEnabled);
+    }
+
+    /**
+     * Toggle or set developer diagnostics view specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setDeveloperDiagnosticsEnabled(enabled) {
+      return this.updateSettings({ developerDiagnosticsEnabled: Boolean(enabled) });
+    }
+
+    /**
+     * Returns the active privacy configuration snapshot
+     * @returns {object}
+     */
+    getPrivacyConfig() {
+      return this.currentSettings.privacy || DEFAULT_PRIVACY;
+    }
+
+    /**
+     * Updates privacy configuration specifically
+     * @param {object} partialPrivacy
+     * @returns {Promise<object>}
+     */
+    async updatePrivacyConfig(partialPrivacy = {}) {
+      const currentPrivacy = this.getPrivacyConfig();
+      const updatedPrivacy = {
+        ...currentPrivacy,
+        ...partialPrivacy,
+        telemetry: { ...(currentPrivacy.telemetry || {}), ...(partialPrivacy.telemetry || {}) },
+        diagnostics: { ...(currentPrivacy.diagnostics || {}), ...(partialPrivacy.diagnostics || {}) },
+        optimization: { ...(currentPrivacy.optimization || {}), ...(partialPrivacy.optimization || {}) },
+        retention: { ...(currentPrivacy.retention || {}), ...(partialPrivacy.retention || {}) }
+      };
+      return this.updateSettings({ privacy: updatedPrivacy });
+    }
+
+    /**
+     * Check if a specific telemetry category is enabled
+     * @param {string} [category] - 'performanceMetrics' | 'errorMetrics' | 'featureMetrics' | 'allowRawConversationText'
+     * @returns {boolean}
+     */
+    isTelemetryEnabled(category) {
+      const p = this.getPrivacyConfig();
+      if (!p || !p.telemetry || p.telemetry.enabled === false) {
+        return false;
+      }
+      if (!category) return true;
+      return p.telemetry[category] !== false;
+    }
+
+    /**
+     * Check if a specific diagnostics category is enabled
+     * @param {string} [category] - 'logQueryDetection' | 'logRoutingDecisions' | 'logFailures' | 'consoleOutput'
+     * @returns {boolean}
+     */
+    isDiagnosticsEnabled(category) {
+      const p = this.getPrivacyConfig();
+      if (!p || !p.diagnostics || p.diagnostics.enabled === false) {
+        return false;
+      }
+      if (!category) return true;
+      return Boolean(p.diagnostics[category]);
+    }
+
+    /**
+     * Check if a specific optimization category is enabled
+     * @param {string} category - 'localRules' | 'promptNormalization' | 'contextPruning' | 'backendRouting' | 'allowUiSubstitution'
+     * @returns {boolean}
+     */
+    isOptimizationCategoryEnabled(category) {
+      if (!this.isOptimizationEnabled()) {
+        return false;
+      }
+      const p = this.getPrivacyConfig();
+      if (!p || !p.optimization) {
+        return true;
+      }
+      return p.optimization[category] !== false;
+    }
+
+    /**
+     * Get content retention bounds
+     * @returns {object}
+     */
+    getRetentionConfig() {
+      const p = this.getPrivacyConfig();
+      return (p && p.retention) ? p.retention : DEFAULT_PRIVACY.retention;
     }
 
     /**

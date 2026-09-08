@@ -18,6 +18,7 @@ const {
   bucketCharacterCount,
   extractSafeFeatureSummary,
   isDebugModeEnabled,
+  sanitizeDebugMetadata,
   createPerformanceRecord
 } = require('../src/shared/telemetry');
 
@@ -142,6 +143,54 @@ const devRecord = createPerformanceRecord({
 assert.strictEqual(devRecord.correlation_id, id2);
 assert.deepStrictEqual(devRecord.debug_metadata, devTrace, 'debug_metadata should be populated in dev mode');
 console.log('PASS: Development debug telemetry verified');
+
+// Test 6b: Debug metadata sanitization (forbidden cookies, tokens, session IDs, and raw text)
+console.log('Test 6b: Debug metadata sanitization...');
+const dirtyTrace = {
+  stage: 'candidate_evaluation',
+  cookie: 'session=secret_cookie_val',
+  authToken: 'Bearer secret_token_123',
+  sessionId: 'sess_abc456',
+  url: 'https://claude.ai/chat/conv-uuid-1',
+  query_text: 'Secret user prompt in debug trace',
+  prompt: 'Another raw prompt',
+  safeMetric: 42,
+  nested: {
+    apiKey: 'sk-12345',
+    token: 'jwt.token.here',
+    turn_content: 'Nested prompt turn',
+    valid_flag: true
+  }
+};
+
+// Without allowRawConversationText: cookies, tokens, sessions, AND raw text must be stripped
+const cleanedDefault = sanitizeDebugMetadata(dirtyTrace, { debugMode: true });
+assert.strictEqual(cleanedDefault.stage, 'candidate_evaluation');
+assert.strictEqual(cleanedDefault.safeMetric, 42);
+assert.strictEqual(cleanedDefault.cookie, undefined);
+assert.strictEqual(cleanedDefault.authToken, undefined);
+assert.strictEqual(cleanedDefault.sessionId, undefined);
+assert.strictEqual(cleanedDefault.url, undefined);
+assert.strictEqual(cleanedDefault.query_text, undefined);
+assert.strictEqual(cleanedDefault.prompt, undefined);
+assert.strictEqual(cleanedDefault.nested.apiKey, undefined);
+assert.strictEqual(cleanedDefault.nested.token, undefined);
+assert.strictEqual(cleanedDefault.nested.turn_content, undefined);
+assert.strictEqual(cleanedDefault.nested.valid_flag, true);
+console.log('PASS: Debug metadata sanitization strips cookies, tokens, session IDs, and raw text by default');
+
+// Test 6c: User-initiated debugging path with allowRawConversationText: true
+console.log('Test 6c: User-initiated debugging path with allowRawConversationText: true...');
+const cleanedWithRawText = sanitizeDebugMetadata(dirtyTrace, { debugMode: true, allowRawConversationText: true });
+assert.strictEqual(cleanedWithRawText.query_text, 'Secret user prompt in debug trace');
+assert.strictEqual(cleanedWithRawText.prompt, 'Another raw prompt');
+assert.strictEqual(cleanedWithRawText.nested.turn_content, 'Nested prompt turn');
+// Crucial: Cookies, tokens, and session IDs are STILL purged!
+assert.strictEqual(cleanedWithRawText.cookie, undefined);
+assert.strictEqual(cleanedWithRawText.authToken, undefined);
+assert.strictEqual(cleanedWithRawText.sessionId, undefined);
+assert.strictEqual(cleanedWithRawText.nested.apiKey, undefined);
+console.log('PASS: User-initiated debugging preserves text but strictly purges cookies, tokens, and session IDs');
 
 // Test 7: CacheOutcome and ErrorCategory enums
 console.log('Test 7: CacheOutcome and ErrorCategory enums...');

@@ -137,5 +137,17 @@ if (fs.existsSync(evaluatorPath)) {
   }
 }
 
+const popupJsPath = path.join(EXTENSION_ROOT, 'src/popup/popup.js');
+if (fs.existsSync(popupJsPath)) {
+  try {
+    const popupCode = fs.readFileSync(popupJsPath, 'utf8');
+    new vm.Script(popupCode, { filename: 'src/popup/popup.js' });
+    console.log('PASS: src/popup/popup.js compiles with zero syntax errors');
+  } catch (e) {
+    console.error('FAIL: src/popup/popup.js syntax error:', e.message);
+    process.exit(1);
+  }
+}
+
 console.log('--- ALL EXTENSION BASELINE CHECKS PASSED ---');
 

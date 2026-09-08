@@ -36,6 +36,12 @@ CODE_FENCE_PATTERN = re.compile(r"^\s*(?:```|~~~)")
 # Matches markdown list item prefix (ordered or unordered) with leading indentation
 LIST_ITEM_PATTERN = re.compile(r"^(\s*)([-*+]|\d+\.)[ \t]+(.*)$")
 
+# Matches markdown table rows: e.g. | col 1 | col 2 |
+TABLE_ROW_PATTERN = re.compile(r"^\s*\|.+?\|\s*$")
+
+# Matches ASCII/markdown table border or separator rows: e.g. +---+---+ or |---|---|
+ASCII_TABLE_PATTERN = re.compile(r"^\s*[\+\|][-+=]+[\+\|]\s*$")
+
 # Matches protected inline structures:
 # 1. Inline code: `...`
 # 2. Display math: $$...$$
@@ -134,6 +140,12 @@ class QueryOptimizer:
             if line.rstrip() != line:
                 applied_rules.add("trim_line_whitespace")
             return leading_indent + remainder.rstrip()
+
+        # Check if line is a table row or border (preserve internal column spacing)
+        if TABLE_ROW_PATTERN.match(line) or ASCII_TABLE_PATTERN.match(line):
+            if line.rstrip() != line:
+                applied_rules.add("trim_line_whitespace")
+            return line.rstrip()
 
         # Check for markdown list item
         list_match = LIST_ITEM_PATTERN.match(line)

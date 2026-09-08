@@ -68,6 +68,17 @@
     { label: 'ROOT_CAUSE', regex: /\broot[\s-]cause\b/i }
   ];
 
+  // Table patterns
+  const TABLE_ROW_REGEX = /^\s*\|.+?\|\s*$/m;
+  const TABLE_HEADER_SEPARATOR_REGEX = /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/m;
+  const ASCII_BOX_TABLE_REGEX = /^\s*[\+\|][-+=]+[\+\|]\s*$/m;
+  const TAB_SEPARATED_ROW_REGEX = /^[^\t\n]+(?:\t[^\t\n]+){2,}$/m;
+
+  // Attachment, image, and file reference patterns
+  const ATTACHMENT_REF_REGEX = /\[(?:Attachment|Image|File|Upload)(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:attached\s+(?:file|document|pdf|spreadsheet|notes|data|report|code|screenshot|csv|image)|this\s+attachment|uploaded\s+(?:file|document|csv|data|image|pdf)|see\s+(?:the\s+)?attachment|in\s+the\s+attachment|from\s+the\s+attachment)\b/i;
+  const IMAGE_REF_REGEX = /\[Image(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:in\s+this\s+image|look\s+at\s+this\s+(?:image|screenshot|photo|diagram|chart)|attached\s+image|this\s+screenshot|from\s+the\s+image|analyze\s+this\s+image)\b|!\[.*?\]\(.*?\)/i;
+  const FILE_REF_REGEX = /\[File(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:in\s+this\s+file|the\s+(?:csv|pdf|json|yaml|xml|xlsx|docx)\s+file|attached\s+file|uploaded\s+file)\b|\b[\w-]+\.(?:csv|pdf|json|py|js|ts|tsx|jsx|html|css|cpp|c|java|go|rs|sql|md|xlsx|docx|png|jpg|jpeg|webp|svg)\b/i;
+
   /**
    * Estimates token count based on typical sub-word tokenization ratios.
    * Standard English / Code heuristic: ~4 characters per token.
@@ -82,9 +93,11 @@
   /**
    * Extracts inexpensive, non-generative feature signals from prompt text.
    * @param {string} promptText
+   * @param {object} [options]
+   * @param {object} [options.domAttachments] - Active DOM attachments detected in Claude UI
    * @returns {object} Extracted feature signals
    */
-  function extractQueryFeatures(promptText) {
+  function extractQueryFeatures(promptText, options = {}) {
     const text = typeof promptText === 'string' ? promptText : '';
     const charCount = text.length;
 
@@ -128,6 +141,32 @@
           hasComparisonCue: false,
           hasReasoningCue: false,
           detectedCues: []
+        },
+        tables: {
+          hasTable: false,
+          hasMarkdownTable: false,
+          hasAsciiTable: false,
+          hasTabularData: false
+        },
+        attachments: {
+          hasAttachment: false,
+          hasDomAttachment: false,
+          hasAttachmentReference: false,
+          hasImageReference: false,
+          hasFileReference: false,
+          attachmentCount: 0,
+          types: []
+        },
+        richContent: {
+          hasRichInput: false,
+          hasAttachments: false,
+          hasImages: false,
+          hasFiles: false,
+          hasCodeBlocks: false,
+          hasTables: false,
+          hasMathLatex: false,
+          types: [],
+          preservationRequired: false
         }
       };
     }
@@ -206,6 +245,63 @@
       }
     }
 
+    // 8. Table detection
+    const hasMarkdownTable = TABLE_ROW_REGEX.test(text) && TABLE_HEADER_SEPARATOR_REGEX.test(text);
+    const hasAsciiTable = ASCII_BOX_TABLE_REGEX.test(text);
+    const hasTabularData = TAB_SEPARATED_ROW_REGEX.test(text);
+    const hasTable = hasMarkdownTable || hasAsciiTable || hasTabularData || TABLE_ROW_REGEX.test(text);
+
+    // 9. Attachment & file detection
+    const domAtt = (options && options.domAttachments) || null;
+    const isDomAttArray = Array.isArray(domAtt);
+    const domAttCount = isDomAttArray ? domAtt.length : (domAtt && typeof domAtt.count === 'number' ? domAtt.count : 0);
+    const hasDomAttachment = Boolean(
+      (domAtt && domAtt.hasAttachments) ||
+      (isDomAttArray && domAtt.length > 0)
+    );
+
+    const domAttTypes = [];
+    if (isDomAttArray) {
+      domAtt.forEach((item) => {
+        if (item && (item.isImage || item.type === 'image')) {
+          if (!domAttTypes.includes('image')) domAttTypes.push('image');
+        } else if (item && (item.type === 'file' || item.name)) {
+          if (!domAttTypes.includes('file')) domAttTypes.push('file');
+        } else {
+          if (!domAttTypes.includes('attachment')) domAttTypes.push('attachment');
+        }
+      });
+    } else if (domAtt && Array.isArray(domAtt.types)) {
+      domAttTypes.push(...domAtt.types);
+    }
+
+    const hasAttachmentReference = ATTACHMENT_REF_REGEX.test(text);
+    const hasImageReference = IMAGE_REF_REGEX.test(text) || domAttTypes.includes('image');
+    const hasFileReference = FILE_REF_REGEX.test(text) || domAttTypes.includes('file');
+    const hasAttachment = hasDomAttachment || hasAttachmentReference || hasImageReference || hasFileReference;
+
+    const attachmentTypes = [];
+    for (const t of domAttTypes) {
+      if (!attachmentTypes.includes(t)) attachmentTypes.push(t);
+    }
+    if (hasImageReference && !attachmentTypes.includes('image')) attachmentTypes.push('image');
+    if (hasFileReference && !attachmentTypes.includes('file')) attachmentTypes.push('file');
+    if (hasAttachmentReference && !attachmentTypes.includes('attachment')) attachmentTypes.push('attachment');
+
+    // 10. Consolidated richContent
+    const hasCodeBlocks = hasCodeFence || hasIndentedCode;
+    const richTypes = [];
+    if (hasAttachment) richTypes.push('attachment');
+    if (hasImageReference) richTypes.push('image');
+    if (hasFileReference) richTypes.push('file');
+    if (hasCodeBlocks) richTypes.push('code_block');
+    if (hasInlineCode) richTypes.push('inline_code');
+    if (hasTable) richTypes.push('table');
+    if (hasLatexMath) richTypes.push('latex_math');
+
+    const hasRichInput = hasAttachment || hasCodeBlocks || hasTable || hasLatexMath;
+    const preservationRequired = hasRichInput || hasInlineCode;
+
     return {
       length: {
         characterCount: charCount,
@@ -244,6 +340,32 @@
         hasComparisonCue,
         hasReasoningCue,
         detectedCues
+      },
+      tables: {
+        hasTable,
+        hasMarkdownTable,
+        hasAsciiTable,
+        hasTabularData
+      },
+      attachments: {
+        hasAttachment,
+        hasDomAttachment,
+        hasAttachmentReference,
+        hasImageReference,
+        hasFileReference,
+        attachmentCount: domAttCount || (hasAttachment ? 1 : 0),
+        types: attachmentTypes
+      },
+      richContent: {
+        hasRichInput,
+        hasAttachments: hasAttachment,
+        hasImages: hasImageReference,
+        hasFiles: hasFileReference,
+        hasCodeBlocks,
+        hasTables: hasTable,
+        hasMathLatex: hasLatexMath,
+        types: richTypes,
+        preservationRequired
       }
     };
   }
