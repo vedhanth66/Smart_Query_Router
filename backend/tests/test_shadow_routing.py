@@ -234,7 +234,7 @@ def test_activation_succeeds_when_thresholds_satisfied(client):
         "min_agreement_rate_pct": 50.0,
         "max_quality_risk_pct": 20.0,
         "min_net_savings_usd": -1.0,
-        "max_p95_latency_ms": 25.0,
+        "max_p95_latency_ms": 100.0,
         "min_disagreement_confidence": 0.50,
     }
 

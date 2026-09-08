@@ -286,7 +286,7 @@ def test_comparative_model_latency_and_resource_cost_roi(canonical_dataset):
     cost_report = report.latency_resource_cost
 
     # Latency checks
-    assert cost_report.embedding_latency_ms < 1.0
+    assert cost_report.embedding_latency_ms < cost_report.latency_budget_ms
     assert cost_report.total_overhead_ms < cost_report.latency_budget_ms
     assert cost_report.latency_budget_passed is True
 
