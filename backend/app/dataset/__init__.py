@@ -7,6 +7,16 @@ from .repository import (
     InvalidReviewStateTransitionError,
 )
 from .pipeline import DatasetCurationPipeline
+from .ml_dataset_generator import (
+    MLFeatureDatasetGenerator,
+    save_ml_dataset_json,
+    save_ml_dataset_jsonl,
+    save_ml_dataset_csv,
+    load_ml_dataset_json,
+    extract_local_signals,
+    extract_context_signals,
+    derive_optimal_target_label,
+)
 
 # Default module-level singletons
 default_candidate_repository = CandidateRepository()
@@ -21,4 +31,12 @@ __all__ = [
     "DatasetCurationPipeline",
     "default_candidate_repository",
     "default_dataset_pipeline",
+    "MLFeatureDatasetGenerator",
+    "save_ml_dataset_json",
+    "save_ml_dataset_jsonl",
+    "save_ml_dataset_csv",
+    "load_ml_dataset_json",
+    "extract_local_signals",
+    "extract_context_signals",
+    "derive_optimal_target_label",
 ]

@@ -99,6 +99,21 @@ function createMockPopupDocument() {
   new MockElement('ul', 'activity-list');
   new MockElement('button', 'btn-reset-metrics');
 
+  // Developer Diagnostics Elements
+  new MockElement('input', 'toggle-diagnostics');
+  new MockElement('div', 'diagnostics-container');
+  new MockElement('span', 'diag-reason-code');
+  new MockElement('span', 'diag-task-category');
+  new MockElement('span', 'diag-route-name');
+  new MockElement('p', 'diag-explanation');
+  new MockElement('div', 'diag-signals-list');
+  new MockElement('span', 'diag-internal-label');
+  new MockElement('span', 'diag-internal-score');
+  new MockElement('p', 'diag-internal-disclaimer');
+  new MockElement('div', 'diag-factor-breakdown');
+  new MockElement('div', 'diag-escalation-box');
+  new MockElement('div', 'diag-escalation-details');
+
   return { doc, elements };
 }
 
@@ -222,5 +237,103 @@ setTimeout(() => {
   assert.strictEqual(el1.get('activity-empty').style.display, 'flex');
   assert.strictEqual(el1.get('activity-list').style.display, 'none');
   console.log('PASS: Reset button clears stats and restores empty state');
+
+  // Test 7: Developer Diagnostics Toggle and Detail Rendering
+  console.log('Test 7: Developer diagnostics toggle and detail rendering...');
+  // Initially diagnostics should be hidden (disabled by default)
+  assert.strictEqual(settings1.isDeveloperDiagnosticsEnabled(), false);
+  assert.strictEqual(el1.get('toggle-diagnostics').checked, false);
+  assert.strictEqual(el1.get('diagnostics-container').style.display, 'none');
+
+  // Record an activity with complete diagnostics
+  metrics1.recordActivity({
+    route: 'simple-model candidate',
+    modelTier: 'simple',
+    cacheOutcome: 'MISS',
+    tokensSaved: 40,
+    latencyMs: 95,
+    status: 'COMPLETED',
+    diagnostics: {
+      reasonCode: 'SIMPLE_TASK_SIGNAL',
+      reasonExplanation: 'Query evaluated as self-contained with low complexity signals.',
+      taskCategory: 'coding',
+      signals: ['STANDALONE_QUERY', 'NO_CODE_SYNTAX'],
+      internalSignals: {
+        score: 0.18,
+        level: 'LOW',
+        confidence: 0.85,
+        factorBreakdown: { length: 0.05, code: 0, cues: 0 }
+      }
+    }
+  });
+
+  // Toggle Developer Diagnostics ON
+  const diagToggle = el1.get('toggle-diagnostics');
+  diagToggle.checked = true;
+  diagToggle.dispatchEvent({ type: 'change', target: diagToggle });
+
+  // Verify settings updated and container is shown
+  assert.strictEqual(settings1.isDeveloperDiagnosticsEnabled(), true);
+  popup1.render();
+  assert.strictEqual(el1.get('diagnostics-container').style.display, 'flex');
+
+  // Verify Reason Code badge and explanation
+  assert.strictEqual(el1.get('diag-reason-code').textContent, 'SIMPLE_TASK_SIGNAL');
+  assert.strictEqual(el1.get('diag-task-category').textContent, 'CODING');
+  assert.strictEqual(el1.get('diag-route-name').textContent, 'simple-model candidate');
+  assert.strictEqual(el1.get('diag-explanation').textContent, 'Query evaluated as self-contained with low complexity signals.');
+
+  // Verify Internal Heuristic Signal labeling & disclaimer
+  assert.strictEqual(el1.get('diag-internal-label').textContent, 'Internal Heuristic Signal');
+  assert.strictEqual(el1.get('diag-internal-score').textContent, 'LOW (0.18)');
+  assert.ok(el1.get('diag-internal-disclaimer').textContent.includes('Indicative heuristic signal only'));
+  assert.ok(el1.get('diag-factor-breakdown').children.length > 0);
+
+  // Test Escalation Trace rendering
+  metrics1.recordActivity({
+    route: 'strong-model candidate',
+    modelTier: 'strong',
+    cacheOutcome: 'MISS',
+    tokensSaved: 0,
+    latencyMs: 1600,
+    status: 'COMPLETED',
+    diagnostics: {
+      reasonCode: 'ESCALATION',
+      reasonExplanation: 'Initial small-model route escalated to strong model (Completeness check failed).',
+      taskCategory: 'reasoning',
+      internalSignals: {
+        score: 0.72,
+        level: 'HIGH',
+        confidence: 0.90
+      },
+      escalationDetails: {
+        evaluatorId: 'completeness_evaluator',
+        completeness: 0.45,
+        detectedIssues: ['TRUNCATED_RESPONSE']
+      }
+    }
+  });
+
+  popup1.render();
+  assert.strictEqual(el1.get('diag-reason-code').textContent, 'ESCALATION');
+  assert.strictEqual(el1.get('diag-escalation-box').style.display, 'flex');
+  assert.ok(el1.get('diag-escalation-details').textContent.includes('45%'));
+  assert.ok(el1.get('diag-escalation-details').textContent.includes('TRUNCATED_RESPONSE'));
+
+  // Strict Privacy Check: ensure no prompt or conversation text in diagnostics DOM
+  assert.strictEqual(el1.get('diagnostics-container').innerHTML.includes('raw_prompt'), false);
+  assert.strictEqual(el1.get('diagnostics-container').innerHTML.includes('promptText'), false);
+  assert.strictEqual(el1.get('diagnostics-container').innerHTML.includes('query_text'), false);
+
+  console.log('PASS: Developer diagnostics renders reason code, internal heuristic signals, disclaimer, and escalation trace');
+
+  // Toggle Developer Diagnostics back OFF
+  diagToggle.checked = false;
+  diagToggle.dispatchEvent({ type: 'change', target: diagToggle });
+  assert.strictEqual(settings1.isDeveloperDiagnosticsEnabled(), false);
+  popup1.render();
+  assert.strictEqual(el1.get('diagnostics-container').style.display, 'none');
+  console.log('PASS: Disabling developer diagnostics cleanly hides diagnostics container');
+
   console.log('--- ALL POPUP SURFACE TESTS PASSED ---');
 }, 50);

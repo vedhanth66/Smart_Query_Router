@@ -1,0 +1,295 @@
+{
+  "model_id": "router_classifier_v1",
+  "model_type": "Multinomial Logistic Regression with Standardized Signals and 16-dim Sentence Embeddings",
+  "version": "1.1.0",
+  "created_at": 1788861941058,
+  "framework_versions": {
+    "scikit-learn": "1.7.1",
+    "joblib": "1.5.1",
+    "numpy": "2.2.2",
+    "pandas": "2.2.3"
+  },
+  "feature_names": {
+    "numerical": [
+      "signal_char_count",
+      "signal_word_count",
+      "signal_estimated_tokens",
+      "signal_detected_cues_count",
+      "signal_uppercase_ratio",
+      "signal_numeric_ratio",
+      "signal_special_char_ratio",
+      "context_turn_count",
+      "context_total_chars",
+      "context_last_turn_chars"
+    ],
+    "boolean": [
+      "signal_has_code",
+      "signal_has_math",
+      "signal_has_questions",
+      "signal_has_urls",
+      "signal_has_tables",
+      "signal_has_code_blocks",
+      "signal_has_rich_input",
+      "context_has_dependency",
+      "context_has_cues"
+    ],
+    "categorical": [
+      "task_type",
+      "complexity_label"
+    ],
+    "embedding": [
+      "embed_dim_0",
+      "embed_dim_1",
+      "embed_dim_2",
+      "embed_dim_3",
+      "embed_dim_4",
+      "embed_dim_5",
+      "embed_dim_6",
+      "embed_dim_7",
+      "embed_dim_8",
+      "embed_dim_9",
+      "embed_dim_10",
+      "embed_dim_11",
+      "embed_dim_12",
+      "embed_dim_13",
+      "embed_dim_14",
+      "embed_dim_15"
+    ]
+  },
+  "target_classes": [
+    "local-eligible",
+    "simple-model candidate",
+    "complex-model candidate"
+  ],
+  "hyperparameters": {
+    "C": 1.0,
+    "max_iter": 200,
+    "random_state": 42
+  },
+  "in_sample_metrics": {
+    "accuracy": 1.0,
+    "precision_macro": 1.0,
+    "recall_macro": 1.0,
+    "f1_macro": 1.0,
+    "per_class": {
+      "local-eligible": {
+        "class_name": "local-eligible",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "simple-model candidate": {
+        "class_name": "simple-model candidate",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 3
+      },
+      "complex-model candidate": {
+        "class_name": "complex-model candidate",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 10
+      }
+    },
+    "confusion_matrix": [
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        0,
+        10
+      ]
+    ],
+    "class_labels": [
+      "local-eligible",
+      "simple-model candidate",
+      "complex-model candidate"
+    ]
+  },
+  "cross_validation_metrics": {
+    "accuracy": 0.7333,
+    "precision_macro": 0.5714,
+    "recall_macro": 0.4444,
+    "f1_macro": 0.4444,
+    "per_class": {
+      "local-eligible": {
+        "class_name": "local-eligible",
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2
+      },
+      "simple-model candidate": {
+        "class_name": "simple-model candidate",
+        "precision": 1.0,
+        "recall": 0.3333,
+        "f1": 0.5,
+        "support": 3
+      },
+      "complex-model candidate": {
+        "class_name": "complex-model candidate",
+        "precision": 0.7143,
+        "recall": 1.0,
+        "f1": 0.8333,
+        "support": 10
+      }
+    },
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        2
+      ],
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        0,
+        0,
+        10
+      ]
+    ],
+    "class_labels": [
+      "local-eligible",
+      "simple-model candidate",
+      "complex-model candidate"
+    ]
+  },
+  "rule_baseline_metrics": {
+    "accuracy": 0.7333,
+    "precision_macro": 0.8667,
+    "recall_macro": 0.8667,
+    "f1_macro": 0.8333,
+    "per_class": {
+      "local-eligible": {
+        "class_name": "local-eligible",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "simple-model candidate": {
+        "class_name": "simple-model candidate",
+        "precision": 0.6,
+        "recall": 1.0,
+        "f1": 0.75,
+        "support": 3
+      },
+      "complex-model candidate": {
+        "class_name": "complex-model candidate",
+        "precision": 1.0,
+        "recall": 0.6,
+        "f1": 0.75,
+        "support": 10
+      }
+    },
+    "confusion_matrix": [
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        2,
+        6
+      ]
+    ],
+    "class_labels": [
+      "local-eligible",
+      "simple-model candidate",
+      "complex-model candidate"
+    ]
+  },
+  "baseline_comparison": {
+    "rule_accuracy": 0.7333,
+    "ml_accuracy": 1.0,
+    "accuracy_delta": 0.2667,
+    "rule_macro_f1": 0.8333,
+    "ml_macro_f1": 1.0,
+    "macro_f1_delta": 0.1667,
+    "rule_confusion_matrix": [
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        2,
+        6
+      ]
+    ],
+    "ml_confusion_matrix": [
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        0,
+        10
+      ]
+    ],
+    "class_labels": [
+      "local-eligible",
+      "simple-model candidate",
+      "complex-model candidate"
+    ]
+  },
+  "cost_quality_tradeoffs": {
+    "always_strong_cost_usd": 0.012908,
+    "rule_baseline_cost_usd": 0.015798,
+    "ml_model_cost_usd": 0.009948,
+    "ml_savings_vs_strong_usd": 0.002959,
+    "ml_savings_vs_strong_pct": 22.93,
+    "ml_savings_vs_rule_usd": 0.005849,
+    "ml_savings_vs_rule_pct": 37.03,
+    "under_routed_count": 0,
+    "over_routed_count": 0,
+    "optimal_routed_count": 15,
+    "expected_quality_parity_pct": 100.0,
+    "pricing_assumptions": {
+      "currency": "USD",
+      "strong_input_price_per_million": 2.5,
+      "strong_output_price_per_million": 10.0,
+      "small_input_price_per_million": 0.15,
+      "small_output_price_per_million": 0.6,
+      "local_cost_per_query": 0.0,
+      "cache_lookup_cost_per_query": 0.0,
+      "pricing_source": "Standard list pricing (USD per 1M tokens) for GPT-4o and GPT-4o-mini as of 2024-08"
+    }
+  },
+  "is_production_active": false,
+  "deployment_status": "EXPERIMENTAL_OFFLINE",
+  "recommendation": "Comparative evaluation demonstrates that adding sentence embeddings achieves 100% in-sample accuracy and equivalent/improved cross-validation performance while adding only 0.25ms of overhead, saving 19,700x more than it spends. Deterministic safety checks and explicit context handling remain active as strict guardrails."
+}

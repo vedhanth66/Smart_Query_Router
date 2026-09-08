@@ -89,6 +89,60 @@
       </div>
     </section>
 
+    <!-- Developer Diagnostics Card (Optional) -->
+    <section class="sqr-card sqr-diagnostics-card" id="developer-diagnostics-card">
+      <div class="sqr-control-row">
+        <div class="sqr-control-label">
+          <span class="sqr-label-title">Developer Diagnostics</span>
+          <span class="sqr-label-desc">Routing reason codes & internal signals</span>
+        </div>
+        <label class="sqr-switch">
+          <input type="checkbox" id="toggle-diagnostics">
+          <span class="sqr-slider"></span>
+        </label>
+      </div>
+
+      <div class="sqr-diagnostics-container" id="diagnostics-container" style="display: none;">
+        <div class="sqr-diag-header">
+          <div class="sqr-diag-reason-wrap">
+            <span class="sqr-diag-badge" id="diag-reason-code">SIMPLE_TASK_SIGNAL</span>
+            <span class="sqr-diag-category" id="diag-task-category">General</span>
+          </div>
+          <span class="sqr-diag-route-name" id="diag-route-name">simple-model candidate</span>
+        </div>
+
+        <p class="sqr-diag-explanation" id="diag-explanation">
+          Query evaluated as self-contained with low complexity signals.
+        </p>
+
+        <div class="sqr-diag-signals" id="diag-signals-list"></div>
+
+        <!-- Internal Heuristic Signal Box -->
+        <div class="sqr-internal-signals-box" id="diag-internal-signals-box">
+          <div class="sqr-internal-signals-header">
+            <div class="sqr-internal-signals-title">
+              <span class="sqr-signal-icon">🧭</span>
+              <span id="diag-internal-label">Internal Heuristic Signal</span>
+            </div>
+            <span class="sqr-signal-score-badge" id="diag-internal-score">0.18 (LOW)</span>
+          </div>
+          <p class="sqr-internal-disclaimer" id="diag-internal-disclaimer">
+            Indicative heuristic signal only; not an objective complexity measure.
+          </p>
+          <div class="sqr-factor-breakdown" id="diag-factor-breakdown"></div>
+        </div>
+
+        <!-- Escalation Trace Box -->
+        <div class="sqr-escalation-box" id="diag-escalation-box" style="display: none;">
+          <div class="sqr-escalation-header">
+            <span class="sqr-escalation-icon">⚡</span>
+            <span class="sqr-escalation-title">Escalation Evaluator Trace</span>
+          </div>
+          <div class="sqr-escalation-details" id="diag-escalation-details"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Recent Activity Section -->
     <section class="sqr-activity-section">
       <div class="sqr-activity-header">

@@ -158,6 +158,10 @@
           };
 
       const isOptEnabled = summary.enabledState.optimizationEnabled;
+      const isDiagEnabled = this.userSettingsManager && typeof this.userSettingsManager.isDeveloperDiagnosticsEnabled === 'function'
+        ? this.userSettingsManager.isDeveloperDiagnosticsEnabled()
+        : false;
+
       const dist = summary.routeDistribution;
       const smallWidth = dist.totalRouted > 0 ? Math.round((dist.smallCount / dist.totalRouted) * 100) : 50;
       const strongWidth = dist.totalRouted > 0 ? (100 - smallWidth) : 50;
@@ -169,6 +173,9 @@
         activityRowsHtml = '<div style="padding: 14px; text-align: center; color: #71717a; font-size: 11px;">No recent optimizer activity recorded yet.</div>';
       } else {
         for (const item of activities.slice(0, 5)) {
+          const reasonBadge = (isDiagEnabled && item.diagnostics && item.diagnostics.reasonCode)
+            ? `<span style="background: rgba(129, 140, 248, 0.2); color: #818cf8; padding: 1px 5px; border-radius: 4px; font-size: 9px; font-weight: 600;">${item.diagnostics.reasonCode}</span>`
+            : '';
           const savingsBadge = item.tokensSaved > 0 ? `<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 1px 5px; border-radius: 4px; font-size: 10px;">+${item.tokensSaved} tok</span>` : '';
           const cacheBadge = item.cacheOutcome === 'HIT' ? '<span style="background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 1px 5px; border-radius: 4px; font-size: 10px;">HIT</span>' : '';
           const latencyStr = item.latencyMs ? `<span style="color: #71717a; font-size: 10px;">${item.latencyMs}ms</span>` : '';
@@ -180,10 +187,70 @@
                 <div style="font-size: 9.5px; color: #71717a;">${new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div style="display: flex; gap: 4px; align-items: center;">
+                ${reasonBadge}
                 ${cacheBadge}
                 ${savingsBadge}
                 ${latencyStr}
               </div>
+            </div>
+          `;
+        }
+      }
+
+      let diagnosticsPanelHtml = '';
+      if (isDiagEnabled) {
+        const latestAct = activities.length > 0 ? activities[0] : null;
+        if (latestAct && latestAct.diagnostics) {
+          const d = latestAct.diagnostics;
+          const isig = d.internalSignals;
+          const esc = d.escalationDetails;
+
+          let factorTagsHtml = '';
+          if (isig && isig.factorBreakdown) {
+            for (const [k, v] of Object.entries(isig.factorBreakdown)) {
+              factorTagsHtml += `<span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,0.05); color: #a1a1aa;">${k}: <strong style="color: #f4f4f5;">${v}</strong></span>`;
+            }
+          }
+
+          let escalationHtml = '';
+          if (esc && (d.reasonCode === 'ESCALATION' || esc.completeness !== null)) {
+            const compStr = (esc.completeness !== null && esc.completeness !== undefined) ? `Completeness: ${(esc.completeness * 100).toFixed(0)}%` : '';
+            const issuesStr = esc.detectedIssues && esc.detectedIssues.length > 0 ? `Issues: ${esc.detectedIssues.join(', ')}` : '';
+            escalationHtml = `
+              <div style="margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 10px; color: #fca5a5;">
+                <div style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">⚠️ Escalation Evaluator Trace</div>
+                <div style="margin-top: 2px;">${[compStr, issuesStr].filter(Boolean).join(' · ')}</div>
+              </div>
+            `;
+          }
+
+          diagnosticsPanelHtml = `
+            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #1a1a1e; display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <span style="font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: rgba(129, 140, 248, 0.25); color: #818cf8; letter-spacing: 0.04em;">${d.reasonCode}</span>
+                  <span style="font-size: 9.5px; color: #71717a; text-transform: uppercase;">${d.taskCategory || 'GENERAL'}</span>
+                </div>
+                <span style="font-size: 10px; color: #a1a1aa; font-style: italic;">${latestAct.route}</span>
+              </div>
+              <div style="font-size: 11px; color: #e4e4e7; line-height: 1.35;">${d.reasonExplanation}</div>
+
+              <!-- Internal Heuristic Signal Box -->
+              <div style="margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: #141416; border: 1px solid rgba(255,255,255,0.06);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 9.5px; font-weight: 600; color: #d4d4d8; text-transform: uppercase; letter-spacing: 0.03em;">🧭 Internal Heuristic Signal</span>
+                  <span style="font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 9999px; background: rgba(56, 189, 248, 0.15); color: #38bdf8;">${isig ? `${isig.level || 'SIGNAL'} (${isig.score !== null && isig.score !== undefined ? isig.score.toFixed(2) : 'N/A'})` : 'N/A'}</span>
+                </div>
+                <div style="font-size: 9px; color: #71717a; font-style: italic; margin-top: 2px;">Indicative heuristic signal only; not an objective complexity measure.</div>
+                ${factorTagsHtml ? `<div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;">${factorTagsHtml}</div>` : ''}
+              </div>
+              ${escalationHtml}
+            </div>
+          `;
+        } else {
+          diagnosticsPanelHtml = `
+            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #1a1a1e; font-size: 11px; color: #71717a; text-align: center;">
+              No developer diagnostics recorded yet for this session.
             </div>
           `;
         }
@@ -211,6 +278,21 @@
               <span style="font-size: 11px; color: ${isOptEnabled ? '#34d399' : '#9ca3af'};">${isOptEnabled ? 'Enabled' : 'Disabled'}</span>
             </label>
           </div>
+
+          <!-- Developer Diagnostics Toggle -->
+          <div style="padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(129,140,248,0.04);">
+            <div>
+              <div style="color: #d4d4d8; font-size: 11px; font-weight: 500;">Developer Diagnostics</div>
+              <div style="color: #71717a; font-size: 9.5px;">Routing reason codes & signals</div>
+            </div>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="checkbox" id="sqr-surface-diag-toggle" ${isDiagEnabled ? 'checked' : ''} style="cursor: pointer;">
+              <span style="font-size: 10.5px; color: ${isDiagEnabled ? '#818cf8' : '#9ca3af'};">${isDiagEnabled ? 'Shown' : 'Hidden'}</span>
+            </label>
+          </div>
+
+          <!-- Diagnostics Panel (Conditional) -->
+          ${diagnosticsPanelHtml}
 
           <!-- Metrics Row -->
           <div style="padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.06);">
@@ -267,6 +349,18 @@
           const checked = e.target.checked;
           if (this.userSettingsManager) {
             await this.userSettingsManager.setOptimizationEnabled(checked);
+            this.render();
+          }
+        });
+      }
+
+      // Bind developer diagnostics toggle checkbox
+      const diagToggle = this.rootElement.querySelector('#sqr-surface-diag-toggle');
+      if (diagToggle) {
+        diagToggle.addEventListener('change', async (e) => {
+          const checked = e.target.checked;
+          if (this.userSettingsManager && typeof this.userSettingsManager.setDeveloperDiagnosticsEnabled === 'function') {
+            await this.userSettingsManager.setDeveloperDiagnosticsEnabled(checked);
             this.render();
           }
         });

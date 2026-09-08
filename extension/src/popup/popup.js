@@ -134,6 +134,18 @@
           }
         });
       }
+
+      // Toggle Developer Diagnostics Switch
+      const toggleDiagEl = doc.getElementById('toggle-diagnostics');
+      if (toggleDiagEl) {
+        toggleDiagEl.addEventListener('change', async (e) => {
+          const isDiagEnabled = (e.target && typeof e.target.checked === 'boolean') ? e.target.checked : false;
+          if (this.userSettingsManager && typeof this.userSettingsManager.setDeveloperDiagnosticsEnabled === 'function') {
+            await this.userSettingsManager.setDeveloperDiagnosticsEnabled(isDiagEnabled);
+            this.render();
+          }
+        });
+      }
     }
 
     /**
@@ -226,12 +238,33 @@
         labelStrong.innerHTML = `<span class="sqr-dot sqr-dot-strong"></span> Strong: <strong>${dist.strongPercentage}</strong> (${dist.strongCount})`;
       }
 
-      // 5. Recent Activity List
+      // 5. Developer Diagnostics Section
+      const isDiagEnabled = this.userSettingsManager && typeof this.userSettingsManager.isDeveloperDiagnosticsEnabled === 'function'
+        ? this.userSettingsManager.isDeveloperDiagnosticsEnabled()
+        : false;
+
+      const toggleDiagEl = doc.getElementById('toggle-diagnostics');
+      if (toggleDiagEl) {
+        toggleDiagEl.checked = isDiagEnabled;
+      }
+
+      const diagContainer = doc.getElementById('diagnostics-container');
+      if (diagContainer) {
+        diagContainer.style.display = isDiagEnabled ? 'flex' : 'none';
+      }
+
+      const activities = summary.recentActivity || [];
+      if (isDiagEnabled) {
+        const targetActivity = (this.selectedActivityId && activities.find(a => a.id === this.selectedActivityId))
+          || (activities.length > 0 ? activities[0] : null);
+        this._renderDiagnosticsDetails(targetActivity);
+      }
+
+      // 6. Recent Activity List
       const activityCountEl = doc.getElementById('activity-count');
       const emptyEl = doc.getElementById('activity-empty');
       const listEl = doc.getElementById('activity-list');
 
-      const activities = summary.recentActivity || [];
       if (activityCountEl) {
         activityCountEl.textContent = `${activities.length} items`;
       }
@@ -248,6 +281,9 @@
           for (const item of activities) {
             const li = doc.createElement('li');
             li.className = 'sqr-activity-item';
+            if (this.selectedActivityId === item.id) {
+              li.classList.add('selected');
+            }
 
             const timeStr = formatRelativeTime(item.timestamp);
             const routeName = item.route || 'Model Routing';
@@ -256,6 +292,9 @@
             const cacheStr = item.cacheOutcome === 'HIT' ? 'HIT' : (item.cacheOutcome === 'MISS' ? 'MISS' : null);
 
             let badgesHtml = '';
+            if (isDiagEnabled && item.diagnostics && item.diagnostics.reasonCode) {
+              badgesHtml += `<span class="sqr-badge sqr-badge-reason">${item.diagnostics.reasonCode}</span>`;
+            }
             if (cacheStr) {
               badgesHtml += `<span class="sqr-badge sqr-badge-${cacheStr.toLowerCase()}">${cacheStr}</span>`;
             }
@@ -275,9 +314,139 @@
                 ${badgesHtml}
               </div>
             `;
+
+            if (isDiagEnabled) {
+              li.style.cursor = 'pointer';
+              li.addEventListener('click', () => {
+                this.selectedActivityId = item.id;
+                this.render();
+              });
+            }
+
             listEl.appendChild(li);
           }
         }
+      }
+    }
+
+    /**
+     * Renders detailed diagnostics card for a specific activity item
+     * @private
+     * @param {object|null} activity
+     */
+    _renderDiagnosticsDetails(activity) {
+      const doc = this.document;
+      if (!doc) return;
+
+      const badgeEl = doc.getElementById('diag-reason-code');
+      const categoryEl = doc.getElementById('diag-task-category');
+      const routeNameEl = doc.getElementById('diag-route-name');
+      const explanationEl = doc.getElementById('diag-explanation');
+      const signalsEl = doc.getElementById('diag-signals-list');
+      const internalLabelEl = doc.getElementById('diag-internal-label');
+      const internalScoreEl = doc.getElementById('diag-internal-score');
+      const internalDisclaimerEl = doc.getElementById('diag-internal-disclaimer');
+      const factorBreakdownEl = doc.getElementById('diag-factor-breakdown');
+      const escalationBoxEl = doc.getElementById('diag-escalation-box');
+      const escalationDetailsEl = doc.getElementById('diag-escalation-details');
+
+      if (!activity || !activity.diagnostics) {
+        if (badgeEl) {
+          badgeEl.textContent = 'NO_DATA';
+          badgeEl.className = 'sqr-diag-badge';
+        }
+        if (categoryEl) categoryEl.textContent = 'Awaiting Query';
+        if (routeNameEl) routeNameEl.textContent = activity ? (activity.route || '') : 'None';
+        if (explanationEl) explanationEl.textContent = 'No developer diagnostics recorded yet for this session.';
+        if (signalsEl) signalsEl.innerHTML = '';
+        if (internalLabelEl) internalLabelEl.textContent = 'Internal Heuristic Signal';
+        if (internalScoreEl) internalScoreEl.textContent = 'N/A';
+        if (factorBreakdownEl) factorBreakdownEl.innerHTML = '';
+        if (escalationBoxEl) escalationBoxEl.style.display = 'none';
+        return;
+      }
+
+      const d = activity.diagnostics;
+      const reasonCode = d.reasonCode || 'UNKNOWN';
+
+      if (badgeEl) {
+        badgeEl.textContent = reasonCode;
+        badgeEl.className = 'sqr-diag-badge';
+        if (reasonCode === 'CACHE_HIT') {
+          badgeEl.classList.add('reason-cache');
+        } else if (reasonCode === 'ESCALATION') {
+          badgeEl.classList.add('reason-escalation');
+        } else if (reasonCode === 'CONTEXT_DEPENDENCY') {
+          badgeEl.classList.add('reason-context');
+        }
+      }
+
+      if (categoryEl) {
+        categoryEl.textContent = d.taskCategory ? d.taskCategory.toUpperCase() : (activity.modelTier ? `${activity.modelTier.toUpperCase()} TIER` : 'GENERAL');
+      }
+
+      if (routeNameEl) {
+        routeNameEl.textContent = activity.route || 'Autonomous Route';
+      }
+
+      if (explanationEl) {
+        explanationEl.textContent = d.reasonExplanation || 'Route selected based on autonomous heuristics.';
+      }
+
+      if (signalsEl) {
+        signalsEl.innerHTML = '';
+        if (Array.isArray(d.signals) && d.signals.length > 0) {
+          for (const sig of d.signals) {
+            const span = doc.createElement('span');
+            span.className = 'sqr-signal-tag';
+            span.textContent = sig;
+            signalsEl.appendChild(span);
+          }
+        }
+      }
+
+      // Internal signals (Strictly labeled as "Internal Heuristic Signal" with disclaimer)
+      if (d.internalSignals) {
+        const isig = d.internalSignals;
+        if (internalLabelEl) {
+          internalLabelEl.textContent = isig.label || 'Internal Heuristic Signal';
+        }
+        if (internalScoreEl) {
+          const scoreText = (isig.score !== null && isig.score !== undefined) ? `${isig.score.toFixed(2)}` : 'N/A';
+          const levelText = isig.level || 'SIGNAL';
+          internalScoreEl.textContent = `${levelText} (${scoreText})`;
+        }
+        if (internalDisclaimerEl) {
+          internalDisclaimerEl.textContent = isig.disclaimer || 'Indicative heuristic signal only; not an objective complexity measure.';
+        }
+        if (factorBreakdownEl) {
+          factorBreakdownEl.innerHTML = '';
+          if (isig.factorBreakdown && typeof isig.factorBreakdown === 'object') {
+            for (const [k, v] of Object.entries(isig.factorBreakdown)) {
+              const span = doc.createElement('span');
+              span.className = 'sqr-factor-item';
+              span.innerHTML = `${k}: <strong>${v}</strong>`;
+              factorBreakdownEl.appendChild(span);
+            }
+          }
+        }
+      } else {
+        if (internalScoreEl) internalScoreEl.textContent = 'None';
+        if (factorBreakdownEl) factorBreakdownEl.innerHTML = '';
+      }
+
+      // Escalation trace
+      if (d.escalationDetails && (reasonCode === 'ESCALATION' || d.escalationDetails.completeness !== null)) {
+        if (escalationBoxEl) escalationBoxEl.style.display = 'flex';
+        if (escalationDetailsEl) {
+          const esc = d.escalationDetails;
+          const compStr = (esc.completeness !== null && esc.completeness !== undefined) ? `Completeness: ${(esc.completeness * 100).toFixed(0)}%` : '';
+          const issuesStr = esc.detectedIssues && esc.detectedIssues.length > 0 ? `Issues: ${esc.detectedIssues.join(', ')}` : '';
+          const evalStr = esc.evaluatorId ? `Evaluator: ${esc.evaluatorId}` : '';
+          escalationDetailsEl.textContent = [evalStr, compStr, issuesStr].filter(Boolean).join(' · ');
+        }
+      } else {
+        if (escalationBoxEl) escalationBoxEl.style.display = 'none';
       }
     }
   }

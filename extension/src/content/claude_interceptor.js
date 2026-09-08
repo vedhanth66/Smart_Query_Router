@@ -543,13 +543,22 @@
             const origLen = extraOptions.substitution.originalLength || 0;
             const subLen = extraOptions.substitution.substitutedLength || 0;
             const savedTok = Math.max(0, Math.ceil((origLen - subLen) / 4));
+            const diag = buildRouteDiagnostics({
+              routeType: 'LOCAL',
+              routing: {
+                reasonCode: 'LOCAL_DETERMINISTIC_RULE_MATCH',
+                explanation: 'Prompt normalized locally to optimize whitespace and formatting.',
+                signals: ['PROMPT_NORMALIZATION_APPLIED']
+              }
+            });
             metricsTracker.recordActivity({
               route: 'Prompt Normalization',
               modelTier: 'local',
               cacheOutcome: 'NOT_CHECKED',
               tokensSaved: savedTok,
               latencyMs: extraOptions.substitution.durationMs || 1,
-              status: 'APPLIED'
+              status: 'APPLIED',
+              diagnostics: diag
             });
           }
           if (feedbackUiController) {
@@ -692,6 +701,18 @@
       }
     }
 
+    // Compute indicative complexity score as an internal heuristic signal (never ground truth)
+    let complexityScore = null;
+    if (complexityScorer && latestTransientQueryEvent) {
+      complexityScore = complexityScorer.computeScore({
+        promptText,
+        localFeatures: latestTransientQueryEvent.features,
+        contextDependency: latestTransientQueryEvent.contextDependency,
+        taskClassification: latestTransientQueryEvent.taskClassification
+      });
+      latestTransientQueryEvent.complexityScore = complexityScore;
+    }
+
     // Produce sanitized summary safe for diagnostics/logging (zero raw prompt text)
     const safeSummary = (queryEventModule && latestTransientQueryEvent)
       ? queryEventModule.toSafeSummary(latestTransientQueryEvent)
@@ -749,13 +770,19 @@
           }
           if (metricsTracker) {
             const act = pipelineResult.proposedAction;
+            const diag = buildRouteDiagnostics({
+              routing: act.routing,
+              complexityScore: act.complexityScore || (latestTransientQueryEvent && latestTransientQueryEvent.complexityScore),
+              cacheOutcome: (act.caching && act.caching.cacheOutcome) || 'NOT_CHECKED'
+            });
             metricsTracker.recordActivity({
               route: (act.routing && act.routing.coarseRoute) || 'Dry Run Route',
               modelTier: (act.routing && act.routing.modelTier) || 'simple',
               cacheOutcome: (act.caching && act.caching.cacheOutcome) || 'NOT_CHECKED',
               tokensSaved: 0,
               latencyMs: (act.backend && act.backend.latencyMs) || 0,
-              status: 'DRY_RUN'
+              status: 'DRY_RUN',
+              diagnostics: diag
             });
           }
           if (createDryRunRecordMessage) {
@@ -843,13 +870,19 @@
             : 0;
           const tokensSaved = (prunedCount * 35) + (cacheOutcome === 'HIT' ? 50 : 0);
 
+          const diag = buildRouteDiagnostics({
+            decisionData,
+            cacheOutcome
+          });
+
           metricsTracker.recordActivity({
             route: executedRoute,
             modelTier: isStrong ? 'strong' : 'simple',
             cacheOutcome,
             tokensSaved,
             latencyMs: clientLatencyMs,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            diagnostics: diag
           });
         }
 

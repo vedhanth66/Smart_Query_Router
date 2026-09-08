@@ -9,6 +9,7 @@ Provides:
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi import FastAPI, Header, Response, status, HTTPException, Query
@@ -47,6 +48,59 @@ from .dataset import (
     default_candidate_repository,
     CandidateNotFoundError,
     InvalidReviewStateTransitionError,
+)
+from .schemas.benchmark import (
+    StrongModelBaselineReport,
+    SmartRoutingEvaluationReport,
+    ComparativeEvaluationReport,
+    RouterFailureAnalysisReport,
+    PricingConfig,
+    BenchmarkDataset,
+)
+from .dataset.benchmark_validator import (
+    load_benchmark_dataset,
+)
+from .dataset.baseline_runner import (
+    StrongModelBaselineRunner,
+    save_baseline_report,
+    load_baseline_report,
+)
+from .dataset.smart_routing_runner import (
+    SmartRoutingBenchmarkRunner,
+    save_smart_routing_report,
+    load_smart_routing_report,
+)
+from .dataset.comparative_evaluator import (
+    ComparativeBenchmarkEvaluator,
+    save_comparative_report,
+    load_comparative_report,
+)
+from .dataset.failure_analyzer import (
+    RouterFailureAnalyzer,
+    save_failure_report,
+    load_failure_report,
+)
+from .schemas.ml_dataset import (
+    MLFeatureDataset,
+)
+from .schemas.ml_model import (
+    ModelTrainingMetadata,
+    MLPredictionRequest,
+    MLPredictionResponse,
+    ComparativeEmbeddingTrainingReport,
+    GuardedRoutingDecision,
+    GuardedPredictionRequest,
+    MLCompareEmbeddingsRequest,
+)
+from .dataset.ml_dataset_generator import (
+    MLFeatureDatasetGenerator,
+    save_ml_dataset_json,
+    save_ml_dataset_jsonl,
+    save_ml_dataset_csv,
+    load_ml_dataset_json,
+)
+from .ml.router_classifier import (
+    MLRouterClassifier,
 )
 from .gateway import (
     default_gateway,
@@ -1243,6 +1297,917 @@ async def export_approved_dataset(
 async def get_dataset_stats() -> DatasetStatsResponse:
     """Returns candidate counts across review statuses, sources, and dataset splits."""
     return default_candidate_repository.get_stats()
+
+
+# -----------------------------------------------------------------------------
+# Benchmark Baseline Evaluation Endpoints
+# -----------------------------------------------------------------------------
+
+_latest_baseline_report: StrongModelBaselineReport | None = None
+
+
+class BaselineEvaluationRequest(BaseModel):
+    """Request payload for triggering a stronger model baseline evaluation."""
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to benchmark dataset (.json or .jsonl). Defaults to canonical benchmark."
+    )
+    concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        description="Maximum concurrent executions on the stronger model"
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Whether to persist the generated baseline report to disk"
+    )
+    output_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output file path if save_to_disk is true"
+    )
+
+
+@app.post(
+    "/api/v1/benchmark/baseline/evaluate",
+    response_model=StrongModelBaselineReport,
+    status_code=status.HTTP_200_OK,
+    summary="Execute benchmark queries against the stronger model to establish a stable reference baseline"
+)
+async def evaluate_strong_model_baseline(
+    request: BaselineEvaluationRequest | None = None,
+) -> StrongModelBaselineReport:
+    """Sends every benchmark query to the stronger model and records latency, tokens, and answer-quality reference.
+    
+    Strictly decoupled from router logic to establish an unadulterated baseline for future experiments.
+    """
+    global _latest_baseline_report
+
+    req = request or BaselineEvaluationRequest()
+
+    if req.dataset_path:
+        target_path = Path(req.dataset_path)
+    else:
+        target_path = Path(__file__).parent / "dataset" / "canonical_benchmark.json"
+
+    if not target_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Benchmark dataset file not found: {target_path}",
+        )
+
+    try:
+        dataset = load_benchmark_dataset(target_path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to load benchmark dataset: {exc}",
+        )
+
+    runner = StrongModelBaselineRunner(gateway=default_gateway, max_concurrency=req.concurrency)
+    report = await runner.run_baseline_evaluation(dataset, concurrency=req.concurrency)
+
+    _latest_baseline_report = report
+
+    if req.save_to_disk:
+        out = Path(req.output_path) if req.output_path else (target_path.parent / f"{report.run_id}.json")
+        save_baseline_report(report, out)
+
+    return report
+
+
+@app.get(
+    "/api/v1/benchmark/baseline/latest",
+    response_model=StrongModelBaselineReport,
+    summary="Retrieve the most recent strong-model baseline evaluation report"
+)
+async def get_latest_baseline_report() -> StrongModelBaselineReport:
+    """Returns the latest in-memory evaluated baseline report, or 404 if none has been run."""
+    global _latest_baseline_report
+    if _latest_baseline_report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No baseline evaluation report has been generated in this session. Run POST /api/v1/benchmark/baseline/evaluate first.",
+        )
+    return _latest_baseline_report
+
+
+# -----------------------------------------------------------------------------
+# Smart-Routing Benchmark Evaluation Endpoints
+# -----------------------------------------------------------------------------
+
+_latest_smart_routing_report: SmartRoutingEvaluationReport | None = None
+_latest_comparative_report: ComparativeEvaluationReport | None = None
+
+
+class SmartRoutingEvaluationRequest(BaseModel):
+    """Request payload for evaluating benchmark queries through the smart-routing pipeline."""
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to benchmark dataset (.json or .jsonl). Defaults to canonical benchmark."
+    )
+    concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        description="Maximum concurrent executions through the router"
+    )
+    compare_with_baseline: bool = Field(
+        default=True,
+        description="Whether to compare outputs against the latest strong-model baseline for lexical overlap"
+    )
+    pricing_config: PricingConfig | None = Field(
+        default=None,
+        description="Optional custom token pricing and proxy cost configuration"
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Whether to persist the generated report to disk"
+    )
+    output_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output file path if save_to_disk is true"
+    )
+
+
+@app.post(
+    "/api/v1/benchmark/smart-routing/evaluate",
+    response_model=SmartRoutingEvaluationReport,
+    status_code=status.HTTP_200_OK,
+    summary="Execute benchmark queries through the full smart-routing pipeline"
+)
+async def evaluate_smart_routing_benchmark(
+    request: SmartRoutingEvaluationRequest | None = None,
+) -> SmartRoutingEvaluationReport:
+    """Runs the benchmark through the full smart-routing pipeline and captures routing distributions.
+    
+    Captures:
+    - Local-handled percentage
+    - Cache hit rate
+    - Small-model percentage
+    - Strong-model percentage
+    - Escalation rate
+    - Token estimates
+    - Latency (mean, p50, p95)
+    - Error rate and quality measures
+    - Disaggregated comparative analysis (if baseline report is available)
+    """
+    global _latest_smart_routing_report, _latest_comparative_report
+
+    req = request or SmartRoutingEvaluationRequest()
+
+    if req.dataset_path:
+        target_path = Path(req.dataset_path)
+    else:
+        target_path = Path(__file__).parent / "dataset" / "canonical_benchmark.json"
+
+    if not target_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Benchmark dataset file not found: {target_path}",
+        )
+
+    try:
+        dataset = load_benchmark_dataset(target_path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to load benchmark dataset: {exc}",
+        )
+
+    base_report = _latest_baseline_report if req.compare_with_baseline else None
+    runner = SmartRoutingBenchmarkRunner(concurrency=req.concurrency)
+    report = await runner.run_smart_routing_evaluation(
+        dataset=dataset,
+        baseline_report=base_report,
+        concurrency=req.concurrency,
+        pricing_config=req.pricing_config,
+    )
+
+    _latest_smart_routing_report = report
+    if report.comparative_analysis:
+        _latest_comparative_report = report.comparative_analysis
+
+    if req.save_to_disk:
+        out = Path(req.output_path) if req.output_path else (target_path.parent / f"{report.run_id}.json")
+        save_smart_routing_report(report, out)
+
+    return report
+
+
+@app.get(
+    "/api/v1/benchmark/smart-routing/latest",
+    response_model=SmartRoutingEvaluationReport,
+    summary="Retrieve the most recent smart-routing evaluation report"
+)
+async def get_latest_smart_routing_report() -> SmartRoutingEvaluationReport:
+    """Returns the latest evaluated smart-routing report, or 404 if none has been run."""
+    global _latest_smart_routing_report
+    if _latest_smart_routing_report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No smart-routing evaluation report has been generated in this session. Run POST /api/v1/benchmark/smart-routing/evaluate first.",
+        )
+    return _latest_smart_routing_report
+
+
+# -----------------------------------------------------------------------------
+# Disaggregated Comparative Benchmark Evaluation Endpoints
+# -----------------------------------------------------------------------------
+
+class ComparativeEvaluationRequest(BaseModel):
+    """Request payload for comparing baseline and smart-routing reports."""
+    model_config = ConfigDict(extra="forbid")
+
+    baseline_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to baseline report JSON file"
+    )
+    smart_routing_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to smart routing report JSON file"
+    )
+    pricing_config: PricingConfig | None = Field(
+        default=None,
+        description="Optional custom token pricing and proxy cost configuration"
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Whether to persist the generated comparative report to disk"
+    )
+    output_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output file path if save_to_disk is true"
+    )
+
+
+@app.post(
+    "/api/v1/benchmark/compare",
+    response_model=ComparativeEvaluationReport,
+    status_code=status.HTTP_200_OK,
+    summary="Compute disaggregated savings and quality deltas relative to baseline"
+)
+async def compare_benchmark_evaluations(
+    request: ComparativeEvaluationRequest | None = None,
+) -> ComparativeEvaluationReport:
+    """Calculates disaggregated token savings, dollar savings, avoided calls, and quality deltas.
+    
+    Guarantees:
+    - Every savings number includes its explicit denominator and formula.
+    - Token pricing is explicit and configurable via PricingConfig.
+    - Avoided calls and quality changes are disaggregated into discrete dimensions.
+    """
+    global _latest_baseline_report, _latest_smart_routing_report, _latest_comparative_report
+    req = request or ComparativeEvaluationRequest()
+
+    base_rep: StrongModelBaselineReport | None = None
+    if req.baseline_path:
+        p = Path(req.baseline_path)
+        if not p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Baseline report file not found: {p}",
+            )
+        try:
+            base_rep = load_baseline_report(p)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to load baseline report: {exc}",
+            )
+    else:
+        base_rep = _latest_baseline_report
+
+    sr_rep: SmartRoutingEvaluationReport | None = None
+    if req.smart_routing_path:
+        p = Path(req.smart_routing_path)
+        if not p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Smart routing report file not found: {p}",
+            )
+        try:
+            sr_rep = load_smart_routing_report(p)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to load smart-routing report: {exc}",
+            )
+    else:
+        sr_rep = _latest_smart_routing_report
+
+    if base_rep is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No baseline report available. Provide baseline_path or run POST /api/v1/benchmark/baseline/evaluate first.",
+        )
+    if sr_rep is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No smart-routing report available. Provide smart_routing_path or run POST /api/v1/benchmark/smart-routing/evaluate first.",
+        )
+
+    evaluator = ComparativeBenchmarkEvaluator(default_pricing=req.pricing_config)
+    comp_report = evaluator.compare(
+        baseline_report=base_rep,
+        smart_routing_report=sr_rep,
+        pricing=req.pricing_config,
+    )
+
+    _latest_comparative_report = comp_report
+
+    if req.save_to_disk:
+        out = Path(req.output_path) if req.output_path else (Path(__file__).parent / "dataset" / f"{comp_report.run_id}.json")
+        save_comparative_report(comp_report, out)
+
+    return comp_report
+
+
+@app.get(
+    "/api/v1/benchmark/compare/latest",
+    response_model=ComparativeEvaluationReport,
+    summary="Retrieve the most recent comparative evaluation report"
+)
+async def get_latest_comparative_report() -> ComparativeEvaluationReport:
+    """Returns the latest evaluated comparative report, or 404 if none has been run."""
+    global _latest_comparative_report
+    if _latest_comparative_report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No comparative evaluation report has been generated in this session. Run POST /api/v1/benchmark/compare first.",
+        )
+    return _latest_comparative_report
+
+
+# -----------------------------------------------------------------------------
+# Router Failure Analysis & Misrouting Breakdown Endpoints
+# -----------------------------------------------------------------------------
+
+_latest_failure_analysis_report: RouterFailureAnalysisReport | None = None
+
+
+class FailureAnalysisRequest(BaseModel):
+    """Request payload for diagnosing router choices across categories and context."""
+    model_config = ConfigDict(extra="forbid")
+
+    smart_routing_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to smart routing report JSON file"
+    )
+    dataset_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to benchmark dataset JSON file"
+    )
+    pricing_config: PricingConfig | None = Field(
+        default=None,
+        description="Optional pricing parameters for estimating misrouting dollar impact"
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Whether to persist the generated failure analysis report to disk"
+    )
+    output_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output file path if save_to_disk is true"
+    )
+
+
+@app.post(
+    "/api/v1/benchmark/failures/analyze",
+    response_model=RouterFailureAnalysisReport,
+    status_code=status.HTTP_200_OK,
+    summary="Identify failure classes: queries routed too cheaply, too expensively, or missed local/cache"
+)
+async def analyze_router_failures(
+    request: FailureAnalysisRequest | None = None,
+) -> RouterFailureAnalysisReport:
+    """Isolates and diagnoses router misclassifications.
+    
+    Identifies:
+    - Queries routed too cheaply (risky down-routing)
+    - Queries routed too expensively (over-routing cost inefficiency)
+    - Missed local handling (greetings, arithmetic dispatched to cloud)
+    - Missed cache opportunities
+    - Unexpected escalations
+    - Disaggregated breakdown by task category and context dependency
+    """
+    global _latest_smart_routing_report, _latest_failure_analysis_report
+    req = request or FailureAnalysisRequest()
+
+    sr_rep: SmartRoutingEvaluationReport | None = None
+    if req.smart_routing_path:
+        p = Path(req.smart_routing_path)
+        if not p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Smart-routing report file not found: {p}",
+            )
+        try:
+            sr_rep = load_smart_routing_report(p)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to load smart-routing report: {exc}",
+            )
+    else:
+        sr_rep = _latest_smart_routing_report
+
+    if sr_rep is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No smart-routing report available. Provide smart_routing_path or run POST /api/v1/benchmark/smart-routing/evaluate first.",
+        )
+
+    dataset: BenchmarkDataset | None = None
+    if req.dataset_path:
+        dp = Path(req.dataset_path)
+        if dp.exists():
+            try:
+                dataset = load_benchmark_dataset(dp)
+            except Exception:
+                pass
+    else:
+        canonical_p = Path(__file__).parent / "dataset" / "canonical_benchmark.json"
+        if canonical_p.exists():
+            try:
+                dataset = load_benchmark_dataset(canonical_p)
+            except Exception:
+                pass
+
+    analyzer = RouterFailureAnalyzer(pricing=req.pricing_config)
+    fail_report = analyzer.analyze(
+        report=sr_rep,
+        dataset=dataset,
+        pricing=req.pricing_config,
+    )
+
+    _latest_failure_analysis_report = fail_report
+
+    if req.save_to_disk:
+        out = Path(req.output_path) if req.output_path else (Path(__file__).parent / "dataset" / f"{fail_report.run_id}.json")
+        save_failure_report(fail_report, out)
+
+    return fail_report
+
+
+@app.get(
+    "/api/v1/benchmark/failures/latest",
+    response_model=RouterFailureAnalysisReport,
+    summary="Retrieve the most recent router failure analysis report"
+)
+async def get_latest_failure_report() -> RouterFailureAnalysisReport:
+    """Returns the latest router failure analysis report, or 404 if none has been run."""
+    global _latest_failure_analysis_report
+    if _latest_failure_analysis_report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No failure analysis report has been generated in this session. Run POST /api/v1/benchmark/failures/analyze first.",
+        )
+    return _latest_failure_analysis_report
+
+
+# -----------------------------------------------------------------------------
+# ML Feature Dataset Generation Endpoints
+# -----------------------------------------------------------------------------
+
+_latest_ml_feature_dataset: MLFeatureDataset | None = None
+
+
+class MLDatasetGenerateRequest(BaseModel):
+    """Request payload for generating an offline ML routing feature dataset."""
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to benchmark dataset JSON file"
+    )
+    baseline_report_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to precomputed strong baseline report JSON"
+    )
+    smart_routing_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to precomputed smart-routing report JSON"
+    )
+    include_raw_query: bool = Field(
+        default=False,
+        description="Whether to retain sanitized query text for research-authorized items"
+    )
+    pricing_config: PricingConfig | None = Field(
+        default=None,
+        description="Optional pricing parameters for evaluating token cost deltas"
+    )
+    export_format: str = Field(
+        default="json",
+        description="Serialization format: 'json', 'jsonl', or 'csv'"
+    )
+    save_to_disk: bool = Field(
+        default=False,
+        description="Whether to persist the generated ML dataset to disk"
+    )
+    output_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output file path if save_to_disk is true"
+    )
+
+
+@app.post(
+    "/api/v1/benchmark/ml-dataset/generate",
+    response_model=MLFeatureDataset,
+    status_code=status.HTTP_200_OK,
+    summary="Generate offline feature dataset for ML routing experiments"
+)
+async def generate_ml_feature_dataset(
+    request: MLDatasetGenerateRequest | None = None,
+) -> MLFeatureDataset:
+    """Generates an offline tabular feature dataset for ML routing model training.
+    
+    Captures:
+    - Local non-generative signals (char/word count, estimated tokens, code/math/table cues, ratios)
+    - Task category (13 canonical categories) and complexity label
+    - Context dependency signals (turns count, history chars, conversational cues)
+    - Observed routing outcome (route, tier, decision type, cache hit, escalation, tokens, latency)
+    - Quality deltas relative to strong baseline (verdict, format delta, lexical overlap, cost savings)
+    - Target optimal routing label (local-eligible, simple-model candidate, complex-model candidate)
+    
+    Guarantees:
+    - Offline isolation: Online production inference is completely decoupled.
+    - Privacy protection: Private user content scrubbed unless explicitly authorized and redacted.
+    """
+    global _latest_baseline_report, _latest_smart_routing_report, _latest_comparative_report, _latest_ml_feature_dataset
+    req = request or MLDatasetGenerateRequest()
+
+    # Load dataset
+    dataset: BenchmarkDataset
+    if req.dataset_path:
+        p = Path(req.dataset_path)
+        if not p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Benchmark dataset file not found: {p}",
+            )
+        try:
+            dataset = load_benchmark_dataset(p)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to load benchmark dataset: {exc}",
+            )
+    else:
+        canonical_p = Path(__file__).parent / "dataset" / "canonical_benchmark.json"
+        if not canonical_p.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Canonical benchmark dataset not found: {canonical_p}",
+            )
+        dataset = load_benchmark_dataset(canonical_p)
+
+    # Resolve or execute baseline report
+    base_rep: StrongModelBaselineReport | None = None
+    if req.baseline_report_path:
+        bp = Path(req.baseline_report_path)
+        if not bp.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Baseline report file not found: {bp}",
+            )
+        base_rep = load_baseline_report(bp)
+    elif _latest_baseline_report is not None:
+        base_rep = _latest_baseline_report
+    else:
+        base_runner = StrongModelBaselineRunner()
+        base_rep = await base_runner.run_baseline_evaluation(dataset)
+        _latest_baseline_report = base_rep
+
+    # Resolve or execute smart-routing report
+    sr_rep: SmartRoutingEvaluationReport | None = None
+    if req.smart_routing_path:
+        sp = Path(req.smart_routing_path)
+        if not sp.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Smart-routing report file not found: {sp}",
+            )
+        sr_rep = load_smart_routing_report(sp)
+    elif _latest_smart_routing_report is not None:
+        sr_rep = _latest_smart_routing_report
+    else:
+        sr_runner = SmartRoutingBenchmarkRunner()
+        sr_rep = await sr_runner.run_smart_routing_evaluation(dataset)
+        _latest_smart_routing_report = sr_rep
+
+    generator = MLFeatureDatasetGenerator(pricing=req.pricing_config)
+    ml_dataset = generator.generate_from_reports(
+        dataset=dataset,
+        baseline_report=base_rep,
+        smart_routing_report=sr_rep,
+        comparative_report=_latest_comparative_report,
+        include_raw_query=req.include_raw_query,
+    )
+
+    _latest_ml_feature_dataset = ml_dataset
+
+    if req.save_to_disk:
+        out = Path(req.output_path) if req.output_path else (Path(__file__).parent / "dataset" / f"{ml_dataset.dataset_id}.{req.export_format.lower()}")
+        fmt = req.export_format.lower()
+        if fmt == "csv":
+            save_ml_dataset_csv(ml_dataset, out)
+        elif fmt == "jsonl":
+            save_ml_dataset_jsonl(ml_dataset, out)
+        else:
+            save_ml_dataset_json(ml_dataset, out)
+
+    return ml_dataset
+
+
+@app.get(
+    "/api/v1/benchmark/ml-dataset/latest",
+    response_model=MLFeatureDataset,
+    summary="Retrieve the most recent generated ML routing feature dataset"
+)
+async def get_latest_ml_feature_dataset() -> MLFeatureDataset:
+    """Returns the latest generated ML routing feature dataset, or 404 if none has been generated."""
+    global _latest_ml_feature_dataset
+    if _latest_ml_feature_dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No ML feature dataset has been generated in this session. Run POST /api/v1/benchmark/ml-dataset/generate first.",
+        )
+    return _latest_ml_feature_dataset
+
+
+# -----------------------------------------------------------------------------
+# Offline ML Router Classification Endpoints
+# -----------------------------------------------------------------------------
+
+_trained_router_classifier: MLRouterClassifier | None = None
+
+
+class MLModelTrainRequest(BaseModel):
+    """Request parameters for training the offline ML routing classifier."""
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_path: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional path to ML feature dataset JSON file. Defaults to canonical dataset."
+    )
+    hyperparameters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional hyperparameter overrides for Logistic Regression"
+    )
+    pricing_config: PricingConfig | None = Field(
+        default=None,
+        description="Optional pricing parameters for cost/quality tradeoff simulation"
+    )
+    save_to_disk: bool = Field(
+        default=True,
+        description="Whether to persist the model binary and metadata JSON to disk"
+    )
+    output_dir: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Optional output directory for saving artifacts (defaults to backend/app/models)"
+    )
+
+
+@app.post(
+    "/api/v1/models/router-classifier/train",
+    response_model=ModelTrainingMetadata,
+    status_code=status.HTTP_200_OK,
+    summary="Train lightweight ML classification router and compare against rule baseline"
+)
+async def train_ml_router_classifier(
+    request: MLModelTrainRequest | None = None,
+) -> ModelTrainingMetadata:
+    """Trains a lightweight Multinomial Logistic Regression router.
+    
+    Evaluates:
+    - Precision, Recall, Macro F1, and 3x3 Confusion Matrix
+    - Leave-One-Out Cross-Validation
+    - Direct head-to-head comparison against the Deterministic Rule Baseline
+    - Cost and quality tradeoff simulation
+    - Saves reproducible model (.joblib) and metadata (.json)
+    
+    Safety Guardrail:
+    - Does NOT replace the production router (/api/v1/optimize remains rule-based).
+    """
+    global _trained_router_classifier
+    req = request or MLModelTrainRequest()
+
+    # Resolve dataset
+    dataset_p = (
+        Path(req.dataset_path)
+        if req.dataset_path
+        else (Path(__file__).parent / "dataset" / "canonical_ml_features_v1.json")
+    )
+
+    if not dataset_p.exists():
+        # Fallback to generating from canonical benchmark
+        gen = MLFeatureDatasetGenerator(pricing=req.pricing_config)
+        dataset = await gen.generate_from_benchmark(
+            save_to_disk=True,
+            output_path=dataset_p,
+            export_format="json",
+        )
+    else:
+        dataset = load_ml_dataset_json(dataset_p)
+
+    classifier = MLRouterClassifier(
+        hyperparameters=req.hyperparameters,
+        pricing=req.pricing_config,
+    )
+    _, metadata = classifier.train(dataset, pricing=req.pricing_config)
+    _trained_router_classifier = classifier
+
+    if req.save_to_disk:
+        out_dir = Path(req.output_dir) if req.output_dir else (Path(__file__).parent / "models")
+        classifier.save_artifacts(out_dir)
+
+    return metadata
+
+
+@app.get(
+    "/api/v1/models/router-classifier/metadata",
+    response_model=ModelTrainingMetadata,
+    summary="Retrieve the latest reproducible training metadata for the ML router"
+)
+async def get_router_classifier_metadata() -> ModelTrainingMetadata:
+    """Retrieves the latest training metadata, metrics, and baseline comparisons."""
+    global _trained_router_classifier
+    if _trained_router_classifier is not None and _trained_router_classifier.metadata is not None:
+        return _trained_router_classifier.metadata
+
+    # Attempt to load from disk
+    models_dir = Path(__file__).parent / "models"
+    meta_path = models_dir / "router_classifier_v1_metadata.json"
+    if meta_path.exists():
+        try:
+            _trained_router_classifier = MLRouterClassifier.load_artifacts(models_dir)
+            if _trained_router_classifier.metadata:
+                return _trained_router_classifier.metadata
+        except Exception:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="No trained ML router metadata available. Run POST /api/v1/models/router-classifier/train first.",
+    )
+
+
+@app.post(
+    "/api/v1/models/router-classifier/predict",
+    response_model=MLPredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Offline inference probe using the lightweight ML routing classifier"
+)
+async def predict_ml_route(
+    request: MLPredictionRequest,
+) -> MLPredictionResponse:
+    """Scores an incoming query package using the lightweight ML router classifier.
+    
+    Returns predicted route, recommended tier, confidence score, and class probabilities.
+    NOTE: For offline evaluation only; production routing remains on /api/v1/optimize.
+    """
+    global _trained_router_classifier
+    if _trained_router_classifier is None or _trained_router_classifier.pipeline is None:
+        models_dir = Path(__file__).parent / "models"
+        if (models_dir / "router_classifier_v1.joblib").exists():
+            _trained_router_classifier = MLRouterClassifier.load_artifacts(models_dir)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ML router model is not trained or loaded. Run POST /api/v1/models/router-classifier/train first.",
+            )
+
+    route, tier, conf, probs = _trained_router_classifier.predict(
+        local_signals=request.local_signals,
+        task_type=request.task_type,
+        complexity_label=request.complexity_label,
+        context_signals=request.context_signals,
+    )
+
+    return MLPredictionResponse(
+        predicted_route=route,
+        recommended_tier=tier,
+        confidence=conf,
+        class_probabilities=probs,
+        model_id=_trained_router_classifier.metadata.model_id if _trained_router_classifier.metadata else "router_classifier_v1",
+        model_version=_trained_router_classifier.metadata.version if _trained_router_classifier.metadata else "1.0.0",
+    )
+
+
+@app.post(
+    "/api/v1/models/router-classifier/compare-embeddings",
+    response_model=ComparativeEmbeddingTrainingReport,
+    status_code=status.HTTP_200_OK,
+    summary="Train and compare router classifier performance with vs without sentence embeddings"
+)
+async def compare_embeddings_router(
+    request: MLCompareEmbeddingsRequest | None = None,
+) -> ComparativeEmbeddingTrainingReport:
+    """Trains Model A (without embeddings) and Model B (with embeddings) on identical data.
+
+    Returns:
+    - Side-by-side Accuracy, Macro F1, LOOCV metrics, and per-class metrics
+    - Added latency breakdown (embedding generation vs inference overhead)
+    - Hardware compute resource cost vs LLM token cost savings ROI calculation
+    - Cost justification verdict proving the router does not spend more than it saves
+    """
+    global _trained_router_classifier
+    req = request or MLCompareEmbeddingsRequest()
+
+    dataset_p = (
+        Path(req.dataset_path)
+        if req.dataset_path
+        else (Path(__file__).parent / "dataset" / "canonical_ml_features_v1.json")
+    )
+
+    if not dataset_p.exists():
+        gen = MLFeatureDatasetGenerator(pricing=req.pricing_config)
+        dataset = await gen.generate_from_benchmark(
+            save_to_disk=True,
+            output_path=dataset_p,
+            export_format="json",
+        )
+    else:
+        dataset = load_ml_dataset_json(dataset_p)
+
+    classifier = MLRouterClassifier(
+        hyperparameters=req.hyperparameters,
+        pricing=req.pricing_config,
+    )
+
+    _, report = classifier.train_comparative(
+        dataset=dataset,
+        embedding_dimension=req.embedding_dimension,
+        pricing=req.pricing_config,
+        latency_budget_ms=req.latency_budget_ms,
+        benchmark_runs=req.benchmark_runs,
+    )
+    _trained_router_classifier = classifier
+
+    if req.save_to_disk:
+        out_dir = Path(req.output_dir) if req.output_dir else (Path(__file__).parent / "models")
+        classifier.save_artifacts(out_dir)
+
+    return report
+
+
+@app.post(
+    "/api/v1/models/router-classifier/predict-guarded",
+    response_model=GuardedRoutingDecision,
+    status_code=status.HTTP_200_OK,
+    summary="Guarded query routing inference enforcing deterministic safety and context primacy"
+)
+async def predict_guarded_route(
+    request: GuardedPredictionRequest,
+) -> GuardedRoutingDecision:
+    """Evaluates an incoming query through the 3-gate guarded routing pipeline:
+
+    1. Gate 1: Deterministic Safety (greetings, arithmetic) -> on-device local resolution
+    2. Gate 2: Explicit Context Handling (multi-turn conversation) -> context-aware strong tier
+    3. Gate 3: Auxiliary ML Classification -> predicts optimal tier using sentence embeddings
+    """
+    global _trained_router_classifier
+    if _trained_router_classifier is None or _trained_router_classifier.pipeline is None:
+        models_dir = Path(__file__).parent / "models"
+        if (models_dir / "router_classifier_v1.joblib").exists():
+            _trained_router_classifier = MLRouterClassifier.load_artifacts(models_dir)
+        else:
+            _trained_router_classifier = MLRouterClassifier()
+
+    return _trained_router_classifier.predict_guarded(
+        query_text=request.query_text,
+        task_type=request.task_type,
+        complexity_label=request.complexity_label,
+        has_context_dependency=request.has_context_dependency,
+        prior_conversation_turns=request.prior_conversation_turns,
+        local_signals=request.local_signals,
+        context_signals=request.context_signals,
+    )
+
+
+
+
 
 
 
