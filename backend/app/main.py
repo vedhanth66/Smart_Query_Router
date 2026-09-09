@@ -141,12 +141,14 @@ from .evaluator import (
     EvaluationRequest,
     EvaluationResult,
     EscalationRecommendation,
+    EvaluatorType,
 )
 from .cache import (
     default_response_cache,
     default_deduplicator,
     default_semantic_cache,
     DeduplicationTimeoutError,
+    SemanticEligibilityDecision,
 )
 from .optimizer import (
     default_query_optimizer,
@@ -595,6 +597,28 @@ async def evaluate_optimization(
     if instructions and model_tier and not instructions.suggested_model:
         instructions.suggested_model = default_gateway.get_model_recommendation(model_tier)
 
+    # An observation-only extension request still needs an actionable, honest
+    # routing result. Previously these requests reported NO_OPTIMIZATION even
+    # when a simple or strong tier had been selected, leaving the frontend with
+    # no model recommendation to display or record. Keep local safety routes
+    # unchanged, but represent a selected remote tier as a recommendation when
+    # execution was deliberately skipped.
+    if not package.execute_route and coarse_route != CoarseRoute.LOCAL_ELIGIBLE:
+        if decision_type == DecisionType.NO_OPTIMIZATION:
+            decision_type = DecisionType.MODEL_RECOMMENDATION
+            if reason_code == "DEFAULT_BASELINE_FALLTHROUGH":
+                reason_code = "MODEL_ROUTE_RECOMMENDATION"
+
+        if instructions is None:
+            instructions = OptimizationInstructions(
+                suggested_model=(
+                    default_gateway.get_model_recommendation(model_tier)
+                    if model_tier is not None
+                    else None
+                ),
+                notes="Route recommendation only; model execution was not requested.",
+            )
+
     # Execute only the selected route via Model Gateway (unless evaluation is needed)
     execution_metadata: RouteExecutionMetadata | None = None
     if package.execute_route and coarse_route:
@@ -621,15 +645,23 @@ async def evaluate_optimization(
                 small_model_version = default_gateway.get_model_version_recommendation(ModelTier.FAST_CHEAP, "small_model")
 
                 # 1. Exact-match cache lookup (scoped by tenant and user)
-                cached_res, cache_outcome, bypass_reason, cache_key = await default_response_cache.check_cache(
-                    package=package,
-                    tier=ModelTier.FAST_CHEAP,
-                    model_id=small_model_id,
-                    model_version=small_model_version,
-                    provider="small_model",
-                    tenant_id=effective_tenant_id,
-                    user_id=effective_user_id,
-                )
+                cached_res = None
+                cache_outcome = CacheOutcome.NOT_CHECKED
+                bypass_reason = None
+                cache_key = None
+                try:
+                    cached_res, cache_outcome, bypass_reason, cache_key = await default_response_cache.check_cache(
+                        package=package,
+                        tier=ModelTier.FAST_CHEAP,
+                        model_id=small_model_id,
+                        model_version=small_model_version,
+                        provider="small_model",
+                        tenant_id=effective_tenant_id,
+                        user_id=effective_user_id,
+                    )
+                except Exception as cache_err:
+                    cache_outcome = CacheOutcome.BYPASS
+                    bypass_reason = f"CACHE_OUTAGE_FALLBACK: {type(cache_err).__name__}"
 
                 if cache_outcome == CacheOutcome.HIT and cached_res is not None:
                     # Exact Cache HIT: return cached completion directly without remote gateway execution
@@ -660,14 +692,23 @@ async def evaluate_optimization(
                     )
                 else:
                     # 2. Semantic cache lookup (only for eligible static informational requests)
-                    sem_match, sem_val, sem_dec = await default_semantic_cache.lookup_candidate(
-                        package=package,
-                        expected_tier=ModelTier.FAST_CHEAP,
-                        expected_model_id=small_model_id,
-                        expected_model_version=small_model_version,
-                        tenant_id=effective_tenant_id,
-                        user_id=effective_user_id,
-                    )
+                    sem_match = None
+                    sem_val = None
+                    sem_dec = SemanticEligibilityDecision(is_eligible=False, bypass_reason="SEMANTIC_BYPASS")
+                    try:
+                        sem_match, sem_val, sem_dec = await default_semantic_cache.lookup_candidate(
+                            package=package,
+                            expected_tier=ModelTier.FAST_CHEAP,
+                            expected_model_id=small_model_id,
+                            expected_model_version=small_model_version,
+                            tenant_id=effective_tenant_id,
+                            user_id=effective_user_id,
+                        )
+                    except Exception as sem_err:
+                        sem_dec = SemanticEligibilityDecision(
+                            is_eligible=False,
+                            bypass_reason=f"SEMANTIC_CACHE_OUTAGE_FALLBACK: {type(sem_err).__name__}"
+                        )
 
                     if sem_match is not None and sem_val is not None and sem_val.is_valid:
                         # Semantic Cache HIT: return cached completion directly without remote execution
@@ -744,10 +785,23 @@ async def evaluate_optimization(
                                 task_category=package.task_category.value if package.task_category else None,
                                 correlation_id=correlation_id,
                             )
-                            eval_res = await default_evaluator_registry.evaluate(
-                                eval_req,
-                                evaluator_id="heuristic-incompleteness-v1"
-                            )
+                            try:
+                                eval_res = await default_evaluator_registry.evaluate(
+                                    eval_req,
+                                    evaluator_id="heuristic-incompleteness-v1"
+                                )
+                            except Exception as eval_exc:
+                                # Safe fallback on evaluator failure: accept completion, record failure metadata
+                                eval_res = EvaluationResult(
+                                    evaluation_id=f"eval-fallback-{correlation_id}",
+                                    evaluator_id="heuristic-incompleteness-v1",
+                                    evaluator_type=EvaluatorType.HEURISTIC,
+                                    completeness=1.0,
+                                    confidence=1.0,
+                                    escalation_recommendation=EscalationRecommendation.NO_ESCALATION,
+                                    detected_issues=[],
+                                    metadata={"evaluator_failure": str(eval_exc)},
+                                )
 
                             observed_completeness = eval_res.completeness
                             observed_confidence = eval_res.confidence
@@ -836,38 +890,44 @@ async def evaluate_optimization(
                             else:
                                 # Evaluation passed! Store successful small-model response in cache if eligible
                                 if cache_outcome == CacheOutcome.MISS:
-                                    await default_response_cache.store_response(
-                                        package=package,
-                                        tier=ModelTier.FAST_CHEAP,
-                                        model_id=gw_res.model_id,
-                                        model_version=gw_res.model_version,
-                                        provider="small_model",
-                                        content=gw_res.content,
-                                        tenant_id=effective_tenant_id,
-                                        user_id=effective_user_id,
-                                        metadata={
-                                            "evaluator_id": eval_res.evaluator_id,
-                                            "completeness": eval_res.completeness,
-                                            "confidence": eval_res.confidence,
-                                            "escalation_recommendation": eval_res.escalation_recommendation.value,
-                                            "detected_issues": [],
-                                            "passed": True,
-                                        }
-                                    )
+                                    try:
+                                        await default_response_cache.store_response(
+                                            package=package,
+                                            tier=ModelTier.FAST_CHEAP,
+                                            model_id=gw_res.model_id,
+                                            model_version=gw_res.model_version,
+                                            provider="small_model",
+                                            content=gw_res.content,
+                                            tenant_id=effective_tenant_id,
+                                            user_id=effective_user_id,
+                                            metadata={
+                                                "evaluator_id": eval_res.evaluator_id,
+                                                "completeness": eval_res.completeness,
+                                                "confidence": eval_res.confidence,
+                                                "escalation_recommendation": eval_res.escalation_recommendation.value,
+                                                "detected_issues": [],
+                                                "passed": True,
+                                            }
+                                        )
+                                    except Exception:
+                                        pass
 
                                 # Index in semantic cache if eligible
-                                if sem_dec.is_eligible:
-                                    await default_semantic_cache.index_candidate(
-                                        entry_id=f"sem-{correlation_id}",
-                                        query_text=query,
-                                        content=gw_res.content,
-                                        package=package,
-                                        tier=ModelTier.FAST_CHEAP,
-                                        model_id=gw_res.model_id,
-                                        model_version=gw_res.model_version,
-                                        tenant_id=effective_tenant_id,
-                                        user_id=effective_user_id,
-                                    )
+                                if sem_dec and sem_dec.is_eligible:
+                                    try:
+                                        await default_semantic_cache.index_candidate(
+                                            entry_id=f"sem-{correlation_id}",
+                                            query_text=query,
+                                            content=gw_res.content,
+                                            package=package,
+                                            tier=ModelTier.FAST_CHEAP,
+                                            model_id=gw_res.model_id,
+                                            model_version=gw_res.model_version,
+                                            tenant_id=effective_tenant_id,
+                                            user_id=effective_user_id,
+                                        )
+                                    except Exception:
+                                        pass
 
                                 return RouteExecutionMetadata(
                                     route=coarse_route.value,
@@ -911,15 +971,23 @@ async def evaluate_optimization(
                 strong_model_version = default_gateway.get_model_version_recommendation(ModelTier.STRONG, "strong_model")
 
                 # 1. Exact-match cache lookup (scoped by tenant and user)
-                cached_res, cache_outcome, bypass_reason, cache_key = await default_response_cache.check_cache(
-                    package=package,
-                    tier=ModelTier.STRONG,
-                    model_id=strong_model_id,
-                    model_version=strong_model_version,
-                    provider="strong_model",
-                    tenant_id=effective_tenant_id,
-                    user_id=effective_user_id,
-                )
+                cached_res = None
+                cache_outcome = CacheOutcome.NOT_CHECKED
+                bypass_reason = None
+                cache_key = None
+                try:
+                    cached_res, cache_outcome, bypass_reason, cache_key = await default_response_cache.check_cache(
+                        package=package,
+                        tier=ModelTier.STRONG,
+                        model_id=strong_model_id,
+                        model_version=strong_model_version,
+                        provider="strong_model",
+                        tenant_id=effective_tenant_id,
+                        user_id=effective_user_id,
+                    )
+                except Exception as cache_err:
+                    cache_outcome = CacheOutcome.BYPASS
+                    bypass_reason = f"CACHE_OUTAGE_FALLBACK: {type(cache_err).__name__}"
 
                 if cache_outcome == CacheOutcome.HIT and cached_res is not None:
                     # Exact Cache HIT: return cached completion directly without remote gateway execution
@@ -1024,30 +1092,36 @@ async def evaluate_optimization(
 
                             # Store successful strong-model response in cache if eligible
                             if cache_outcome == CacheOutcome.MISS:
-                                await default_response_cache.store_response(
-                                    package=package,
-                                    tier=ModelTier.STRONG,
-                                    model_id=gw_res.model_id,
-                                    model_version=gw_res.model_version,
-                                    provider="strong_model",
-                                    content=gw_res.content,
-                                    tenant_id=effective_tenant_id,
-                                    user_id=effective_user_id,
-                                )
+                                try:
+                                    await default_response_cache.store_response(
+                                        package=package,
+                                        tier=ModelTier.STRONG,
+                                        model_id=gw_res.model_id,
+                                        model_version=gw_res.model_version,
+                                        provider="strong_model",
+                                        content=gw_res.content,
+                                        tenant_id=effective_tenant_id,
+                                        user_id=effective_user_id,
+                                    )
+                                except Exception:
+                                    pass
 
                             # Index in semantic cache if eligible
-                            if sem_dec.is_eligible:
-                                await default_semantic_cache.index_candidate(
-                                    entry_id=f"sem-{correlation_id}",
-                                    query_text=query,
-                                    content=gw_res.content,
-                                    package=package,
-                                    tier=ModelTier.STRONG,
-                                    model_id=gw_res.model_id,
-                                    model_version=gw_res.model_version,
-                                    tenant_id=effective_tenant_id,
-                                    user_id=effective_user_id,
-                                )
+                            if sem_dec and sem_dec.is_eligible:
+                                try:
+                                    await default_semantic_cache.index_candidate(
+                                        entry_id=f"sem-{correlation_id}",
+                                        query_text=query,
+                                        content=gw_res.content,
+                                        package=package,
+                                        tier=ModelTier.STRONG,
+                                        model_id=gw_res.model_id,
+                                        model_version=gw_res.model_version,
+                                        tenant_id=effective_tenant_id,
+                                        user_id=effective_user_id,
+                                    )
+                                except Exception:
+                                    pass
 
                             return RouteExecutionMetadata(
                                 route=coarse_route.value,
@@ -1153,6 +1227,21 @@ async def evaluate_optimization(
                 fallback_applied=True,
                 semantic_cache_outcome="SEMANTIC_BYPASS",
                 semantic_validation_reason="GATEWAY_FAILURE_FALLBACK",
+            )
+        except Exception as unhandled_err:
+            # Safe fallback: do not crash on unexpected execution errors or block user workflow
+            elapsed_ms = round((time.perf_counter() - exec_start) * 1000.0, 2)
+            decision_type = DecisionType.NO_OPTIMIZATION
+            confidence = 0.0
+            reason_code = "EXECUTION_UNEXPECTED_FAILURE_FALLBACK"
+            instructions = None
+            execution_metadata = RouteExecutionMetadata(
+                route=coarse_route.value if coarse_route else "unknown",
+                latency_ms=elapsed_ms,
+                failure_category="UNEXPECTED_ERROR",
+                fallback_applied=True,
+                semantic_cache_outcome="SEMANTIC_BYPASS",
+                semantic_validation_reason="EXECUTION_UNEXPECTED_FAILURE_FALLBACK",
             )
 
     # -------------------------------------------------------------
@@ -2770,7 +2859,6 @@ async def simulate_rollout_batch(
             )
 
     return default_rollout_manager.get_status_report()
-
 
 
 

@@ -35,23 +35,23 @@
         "evaluator_id": "greeting_rule_engine_v1",
         "confidence": 1.0,
         "verified_at": 1757320000000,
-        "review_notes": "Deterministic utility greeting pattern match with zero computational ambiguity."
+        "review_notes": "Deterministic utility greeting pattern match verified against Kaggle dataset dupelicategamerz/greetings-dataset."
       },
       "complexity_provenance": {
         "method": "DETERMINISTIC_VERIFIED",
         "evaluator_id": "complexity_scorer_v1",
         "confidence": 1.0,
         "verified_at": 1757320000000,
-        "review_notes": "Single-sentence greeting without syntax or reasoning markers evaluates to VERY_LOW."
+        "review_notes": "Conversational greeting from Kaggle dataset without syntax or reasoning markers evaluates to VERY_LOW."
       },
       "task_provenance": {
         "method": "DETERMINISTIC_VERIFIED",
         "evaluator_id": "task_classifier_v1",
         "confidence": 1.0,
         "verified_at": 1757320000000,
-        "review_notes": "Standard conversational pleasantry classified deterministically."
+        "review_notes": "Sourced from Kaggle greetings dataset dupelicategamerz/greetings-dataset; classified as conversational greeting."
       },
-      "tags": ["greeting", "local_eligible", "fast"]
+      "tags": ["greeting", "local_eligible", "fast", "kaggle_greetings_dataset"]
     },
     {
       "id": "bench_arith_001",

@@ -304,6 +304,28 @@ def test_execute_route_flag_false_skips_execution():
     assert data["execution_metadata"] is None
 
 
+def test_observation_only_route_returns_actionable_model_recommendation():
+    """A dry/observation-only extension request must retain the selected model tier."""
+    payload = {
+        "request_id": "req_test_recommendation_01",
+        "correlation_id": "corr_test_recommendation_01",
+        "query_text": "Explain topological sorting",
+        "coarse_route": "simple-model candidate",
+        "execute_route": False,
+        "client_metadata": BASE_CLIENT_METADATA,
+    }
+
+    resp = client.post("/api/v1/optimize", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["decision_type"] == "MODEL_RECOMMENDATION"
+    assert data["coarse_route"] == "simple-model candidate"
+    assert data["model_tier"] == "fast_cheap"
+    assert data["optimization_instructions"]["suggested_model"]
+    assert data["execution_metadata"] is None
+
+
 # --- 9. Telemetry Schema Parity Verification ---
 
 def test_telemetry_schema_records_execution_metadata():
