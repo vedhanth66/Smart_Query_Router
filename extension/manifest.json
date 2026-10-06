@@ -38,6 +38,8 @@
         "src/rules/arithmetic_rule.js",
         "src/rules/datetime_rule.js",
         "src/rules/greeting_rule.js",
+        "src/rules/unit_conversion_rule.js",
+        "src/rules/advanced_calculator_rule.js",
         "src/shared/turn_tracker.js",
         "src/shared/relevance_ranker.js",
         "src/shared/context_packager.js",
@@ -55,6 +57,7 @@
         "src/content/response_state_tracker.js",
         "src/content/feedback_ui.js",
         "src/content/status_surface.js",
+        "src/content/local_answer_ui.js",
         "src/content/claude_interceptor.js"
       ],
       "run_at": "document_idle"

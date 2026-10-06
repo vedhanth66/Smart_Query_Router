@@ -198,10 +198,10 @@
             bottom: 24px;
             right: 24px;
             z-index: 999999;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
             font-size: 12px;
             line-height: 1.4;
-            color: #d1d5db;
+            color: #d4d4d8;
           }
           #${ROOT_ID} * {
             box-sizing: border-box;
@@ -211,36 +211,38 @@
             align-items: center;
             gap: 8px;
             padding: 6px 12px;
-            background: rgba(30, 30, 38, 0.92);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(18, 18, 22, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 9999px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
             user-select: none;
           }
           .sqr-pill:hover {
-            background: rgba(40, 40, 52, 0.98);
-            border-color: rgba(255, 255, 255, 0.25);
+            background: rgba(28, 28, 34, 0.98);
+            border-color: rgba(255, 255, 255, 0.22);
             transform: translateY(-1px);
           }
           .sqr-spark {
-            color: #a78bfa;
-            font-size: 13px;
+            color: #e4e4e7;
+            font-size: 8px;
+            line-height: 1;
           }
           .sqr-label {
             font-weight: 500;
-            color: #e5e7eb;
+            color: #f4f4f5;
+            font-size: 11.5px;
           }
           .sqr-close {
             background: none;
             border: none;
-            color: #9ca3af;
+            color: #71717a;
             cursor: pointer;
             padding: 0 2px;
-            font-size: 13px;
+            font-size: 12px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -248,11 +250,11 @@
             transition: color 0.15s;
           }
           .sqr-close:hover {
-            color: #f3f4f6;
+            color: #ffffff;
           }
         </style>
         <div class="sqr-pill" id="sqr-pill-trigger">
-          <span class="sqr-spark">✦</span>
+          <span class="sqr-spark">■</span>
           <span class="sqr-label">Optimization · Feedback?</span>
           <button class="sqr-close" id="sqr-pill-close" title="Dismiss" aria-label="Dismiss">✕</button>
         </div>
@@ -301,24 +303,24 @@
             bottom: 24px;
             right: 24px;
             z-index: 999999;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
             font-size: 12px;
             line-height: 1.4;
-            color: #d1d5db;
+            color: #d4d4d8;
           }
           .sqr-card {
             width: 250px;
             padding: 14px;
-            background: rgba(28, 28, 36, 0.96);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            animation: sqr-fadein 0.18s ease-out;
+            background: rgba(18, 18, 22, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+            animation: sqr-fadein 0.15s cubic-bezier(0.16, 1, 0.3, 1);
           }
           @keyframes sqr-fadein {
-            from { opacity: 0; transform: translateY(6px); }
+            from { opacity: 0; transform: translateY(4px); }
             to { opacity: 1; transform: translateY(0); }
           }
           .sqr-header {
@@ -329,19 +331,23 @@
           }
           .sqr-title {
             font-weight: 600;
-            color: #f3f4f6;
-            font-size: 12.5px;
+            color: #f4f4f5;
+            font-size: 12px;
+            letter-spacing: -0.01em;
           }
           .sqr-close-card {
             background: none;
             border: none;
-            color: #9ca3af;
+            color: #71717a;
             cursor: pointer;
             padding: 2px 4px;
-            font-size: 13px;
+            font-size: 12px;
+            line-height: 1;
+            border-radius: 3px;
+            transition: color 0.15s ease;
           }
           .sqr-close-card:hover {
-            color: #fff;
+            color: #ffffff;
           }
           .sqr-actions {
             display: flex;
@@ -350,15 +356,15 @@
           }
           .sqr-btn {
             flex: 1;
-            padding: 7px 10px;
-            font-size: 12px;
+            padding: 6px 10px;
+            font-size: 11.5px;
             font-weight: 500;
             border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             cursor: pointer;
             transition: all 0.15s ease;
-            background: rgba(255, 255, 255, 0.06);
-            color: #e5e7eb;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e4e4e7;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -367,33 +373,35 @@
           .sqr-btn:hover {
             background: rgba(255, 255, 255, 0.12);
             border-color: rgba(255, 255, 255, 0.22);
+            color: #ffffff;
           }
           .sqr-btn-helpful:hover {
-            background: rgba(16, 185, 129, 0.18);
-            border-color: rgba(16, 185, 129, 0.4);
-            color: #34d399;
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.28);
+            color: #ffffff;
           }
           .sqr-btn-unhelpful:hover {
-            background: rgba(239, 68, 68, 0.18);
-            border-color: rgba(239, 68, 68, 0.4);
-            color: #f87171;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #d4d4d8;
           }
           .sqr-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
             padding-top: 8px;
             text-align: center;
           }
           .sqr-disable-link {
             background: none;
             border: none;
-            color: #6b7280;
-            font-size: 10.5px;
+            color: #52525b;
+            font-size: 10px;
             cursor: pointer;
-            text-decoration: underline;
             padding: 0;
+            transition: color 0.15s ease;
           }
           .sqr-disable-link:hover {
-            color: #9ca3af;
+            color: #a1a1aa;
+            text-decoration: underline;
           }
         </style>
         <div class="sqr-card">
@@ -402,8 +410,8 @@
             <button class="sqr-close-card" id="sqr-card-close" title="Close" aria-label="Close">✕</button>
           </div>
           <div class="sqr-actions">
-            <button class="sqr-btn sqr-btn-helpful" id="sqr-btn-helpful">👍 Helpful</button>
-            <button class="sqr-btn sqr-btn-unhelpful" id="sqr-btn-unhelpful">👎 Unhelpful</button>
+            <button class="sqr-btn sqr-btn-helpful" id="sqr-btn-helpful">Helpful</button>
+            <button class="sqr-btn sqr-btn-unhelpful" id="sqr-btn-unhelpful">Unhelpful</button>
           </div>
           <div class="sqr-footer">
             <button class="sqr-disable-link" id="sqr-disable-ui">Don't show feedback prompts</button>
@@ -460,21 +468,21 @@
             bottom: 24px;
             right: 24px;
             z-index: 999999;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
             font-size: 12px;
             line-height: 1.4;
-            color: #d1d5db;
+            color: #d4d4d8;
           }
           .sqr-card {
             width: 250px;
             padding: 14px;
-            background: rgba(28, 28, 36, 0.96);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            animation: sqr-fadein 0.15s ease-out;
+            background: rgba(18, 18, 22, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+            animation: sqr-fadein 0.15s cubic-bezier(0.16, 1, 0.3, 1);
           }
           .sqr-header {
             display: flex;
@@ -484,8 +492,9 @@
           }
           .sqr-title {
             font-weight: 600;
-            color: #f3f4f6;
+            color: #f4f4f5;
             font-size: 12px;
+            letter-spacing: -0.01em;
           }
           .sqr-reasons-list {
             display: flex;
@@ -497,36 +506,37 @@
             width: 100%;
             text-align: left;
             padding: 6px 10px;
-            font-size: 11.5px;
+            font-size: 11px;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #e5e7eb;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #d4d4d8;
             cursor: pointer;
             transition: all 0.15s ease;
           }
           .sqr-reason-btn:hover {
-            background: rgba(239, 68, 68, 0.15);
-            border-color: rgba(239, 68, 68, 0.35);
-            color: #fca5a5;
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
           }
           .sqr-skip-btn {
             width: 100%;
-            padding: 5px;
-            font-size: 11px;
+            padding: 4px;
+            font-size: 10.5px;
             background: none;
             border: none;
-            color: #9ca3af;
+            color: #71717a;
             cursor: pointer;
             text-align: center;
+            transition: color 0.15s ease;
           }
           .sqr-skip-btn:hover {
-            color: #e5e7eb;
+            color: #d4d4d8;
           }
         </style>
         <div class="sqr-card">
           <div class="sqr-header">
-            <span class="sqr-title">What went wrong? (Optional)</span>
+            <span class="sqr-title">What went wrong?</span>
             <button class="sqr-close-card" id="sqr-reason-close" title="Close" aria-label="Close">✕</button>
           </div>
           <div class="sqr-reasons-list" id="sqr-reasons-container">
@@ -600,13 +610,14 @@
             align-items: center;
             gap: 6px;
             padding: 7px 14px;
-            background: rgba(16, 185, 129, 0.92);
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 12px;
+            background: rgba(20, 20, 24, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: #f4f4f5;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+            font-size: 11.5px;
             font-weight: 500;
             border-radius: 9999px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
             animation: sqr-fadein 0.15s ease-out;
           }
         </style>

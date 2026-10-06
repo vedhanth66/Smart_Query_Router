@@ -247,7 +247,12 @@
    */
   function evaluateDeterministicArithmetic(rawPrompt) {
     if (typeof rawPrompt !== 'string') return null;
-    const trimmed = rawPrompt.trim();
+    const trimmed = rawPrompt
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (trimmed.length === 0 || trimmed.length > 120) return null;
 
     // Strip optional conversational framing: "what is 2 + 2?" -> "2 + 2"

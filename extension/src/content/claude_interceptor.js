@@ -49,6 +49,8 @@
   const arithmeticModule = globalThis.SmartQueryRouterArithmetic || null;
   const dateTimeModule = globalThis.SmartQueryRouterDateTime || null;
   const greetingModule = globalThis.SmartQueryRouterGreeting || null;
+  const unitConversionModule = globalThis.SmartQueryRouterUnitConversion || null;
+  const advancedCalculatorModule = globalThis.SmartQueryRouterAdvancedCalculator || null;
   const routingPolicyConfigModule = globalThis.SmartQueryRouterRoutingPolicyConfig || null;
   const taskClassifierModule = globalThis.SmartQueryRouterTaskClassifier || null;
   const complexityScorerConfigModule = globalThis.SmartQueryRouterComplexityScorerConfig || null;
@@ -58,6 +60,9 @@
   const routingPolicy = routingPolicyModule ? routingPolicyModule.defaultRoutingPolicy : null;
   const userSettingsModule = globalThis.SmartQueryRouterUserSettings || null;
   const userSettingsManager = userSettingsModule ? userSettingsModule.defaultUserSettingsManager : null;
+  if (userSettingsManager && typeof userSettingsManager.load === 'function') {
+    userSettingsManager.load().catch(() => {});
+  }
   const optimizerPipelineModule = globalThis.SmartQueryRouterOptimizerPipeline || null;
   const uiSubstitutionModule = globalThis.SmartQueryRouterUiSubstitution || null;
   const uiSubstitutor = uiSubstitutionModule
@@ -128,6 +133,20 @@
         logger,
         onSubmitFeedback: (feedbackParams) => {
           submitUserFeedback(feedbackParams);
+        }
+      })
+    : null;
+
+  const localAnswerUiModule = globalThis.SmartQueryRouterLocalAnswerUi || null;
+  const localAnswerController = localAnswerUiModule
+    ? new localAnswerUiModule.LocalAnswerUiController({
+        userSettingsManager,
+        logger,
+        onInsertIntoEditor: (text) => {
+          const editor = findPromptEditor();
+          if (editor && uiSubstitutor) {
+            uiSubstitutor.applyPromptOptimization(editor, { rawText: text, bypass: false });
+          }
         }
       })
     : null;
@@ -222,6 +241,12 @@
     if (greetingModule && greetingModule.greetingRule) {
       decisionEngine.registerRule(greetingModule.greetingRule);
     }
+    if (unitConversionModule && unitConversionModule.unitConversionRule) {
+      decisionEngine.registerRule(unitConversionModule.unitConversionRule);
+    }
+    if (advancedCalculatorModule && advancedCalculatorModule.advancedCalculatorRule) {
+      decisionEngine.registerRule(advancedCalculatorModule.advancedCalculatorRule);
+    }
   }
 
   const {
@@ -286,9 +311,22 @@
   }
 
   // 3. Conversation & DOM Detection Utilities
+  function sanitizeQueryString(text) {
+    if (typeof text !== 'string') return '';
+    return text
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function findPromptEditor() {
     return document.querySelector('div[contenteditable="true"].ProseMirror') ||
-      document.querySelector('div[contenteditable="true"]');
+      document.querySelector('div.ProseMirror[contenteditable="true"]') ||
+      document.querySelector('div[contenteditable="true"]') ||
+      document.querySelector('[contenteditable="true"]') ||
+      document.querySelector('div[role="textbox"]');
   }
 
   function getActiveModelHint() {
@@ -309,7 +347,18 @@
 
   function extractEditorText(editor) {
     if (!editor) return '';
-    return editor.innerText || editor.textContent || '';
+    let text = '';
+    const pElements = editor.querySelectorAll ? editor.querySelectorAll('p') : null;
+    if (pElements && pElements.length > 0) {
+      const lines = [];
+      pElements.forEach((p) => {
+        lines.push(p.innerText || p.textContent || '');
+      });
+      text = lines.join(' ');
+    } else {
+      text = editor.innerText || editor.textContent || '';
+    }
+    return sanitizeQueryString(text);
   }
 
   // Detect active DOM attachments in Claude UI (attachment pills, upload previews, image thumbnails)
@@ -737,6 +786,13 @@
       ? userSettingsManager.isDryRunMode()
       : false;
 
+    const isBackendRoutingEnabled = userSettingsManager && typeof userSettingsManager.isBackendEnabled === 'function'
+      ? userSettingsManager.isBackendEnabled() && (
+          typeof userSettingsManager.isOptimizationCategoryEnabled !== 'function' ||
+          userSettingsManager.isOptimizationCategoryEnabled('backendRouting')
+        )
+      : true;
+
     if (isDryRun && optimizerPipelineModule && typeof optimizerPipelineModule.executeDryRunPipeline === 'function') {
       optimizerPipelineModule.executeDryRunPipeline({
         promptText,
@@ -794,7 +850,7 @@
           logger.warn(EventCategory.FAILURE, 'Dry-run pipeline execution error', { error: err.message });
         }
       });
-    } else if (createOptimizeRequestMessage) {
+    } else if (isBackendRoutingEnabled && createOptimizeRequestMessage) {
       // Standard non-dry-run path: asynchronously dispatch optimization package to backend via service worker (fail-open)
       const queryPackage = {
         request_id: (latestTransientQueryEvent && latestTransientQueryEvent.metadata)
@@ -847,7 +903,11 @@
           hostname: (typeof window !== 'undefined' && window.location && window.location.hostname)
             ? String(window.location.hostname).replace(/[:/\\?#].*$/, '')
             : 'claude.ai'
-        }
+        },
+        // execute_route=false: The extension classifies queries and reports routing decisions.
+        // Claude's website handles the actual AI model execution. Setting true would require
+        // a separately configured LLM gateway with API keys.
+        execute_route: false
       };
 
       const optMsg = createOptimizeRequestMessage(queryPackage);
@@ -861,9 +921,32 @@
 
         if (metricsTracker && decisionData) {
           const execMeta = decisionData.execution_metadata || null;
-          const executedRoute = (execMeta && execMeta.route) || decisionData.coarse_route || 'Simple Model';
-          const modelRoute = decisionData.model_route || '';
-          const isStrong = executedRoute.toLowerCase().includes('strong') || modelRoute.toLowerCase().includes('strong');
+          const rawRoute = (execMeta && execMeta.route) || decisionData.coarse_route || '';
+          const modelRoute = decisionData.model_route ||
+            (execMeta && execMeta.model_id) ||
+            decisionData.model_tier ||
+            (decisionData.optimization_instructions && decisionData.optimization_instructions.suggested_model) ||
+            '';
+
+          // Map backend coarse route values to human-readable display labels
+          // 'complex-model candidate' → 'Complex Model', 'simple-model candidate' → 'Simple Model'
+          let executedRoute;
+          if (rawRoute.includes('complex') || modelRoute.includes('strong') || modelRoute.includes('complex')) {
+            executedRoute = 'Complex Model';
+          } else if (rawRoute.includes('local') || rawRoute.includes('LOCAL')) {
+            executedRoute = 'Local (On-Device)';
+          } else if (rawRoute.includes('simple') || rawRoute.includes('SIMPLE')) {
+            executedRoute = 'Simple Model';
+          } else {
+            executedRoute = rawRoute || 'Simple Model';
+          }
+
+          const isStrong = executedRoute === 'Complex Model' ||
+            rawRoute.toLowerCase().includes('complex') ||
+            rawRoute.toLowerCase().includes('strong') ||
+            modelRoute.toLowerCase().includes('strong') ||
+            modelRoute.toLowerCase().includes('complex');
+
           const cacheOutcome = decisionData.cache_outcome || 'MISS';
           const prunedCount = (candidateContextPackage && candidateContextPackage.metadata && candidateContextPackage.metadata.prunedTurnIds)
             ? candidateContextPackage.metadata.prunedTurnIds.length
@@ -928,7 +1011,13 @@
             backendTimestamp: decisionData ? decisionData.timestamp : null,
             decisionType: decisionData ? decisionData.decision_type : 'NO_OPTIMIZATION',
             coarseRoute: executedRoute,
-            modelRoute: decisionData ? decisionData.model_route : null,
+            modelRoute: decisionData
+              ? (decisionData.model_route ||
+                (execMeta && execMeta.model_id) ||
+                decisionData.model_tier ||
+                (decisionData.optimization_instructions && decisionData.optimization_instructions.suggested_model) ||
+                null)
+              : null,
             modelVersion: modelVersion,
             cacheOutcome: (decisionData && decisionData.cache_outcome) || telemetryModule.CacheOutcome.NOT_CHECKED,
             latencyMs: clientLatencyMs,
@@ -976,31 +1065,285 @@
   }
 
   /**
+   * Evaluates if a prompt text is a deterministic query suitable for on-device answer resolution.
+   * @param {string} text
+   * @returns {{ canAnswerLocally: boolean, expression?: string, result?: any, ruleId?: string } | null}
+   */
+  function evaluateLocalAnswerCandidate(text) {
+    if (!text || typeof text !== 'string') return null;
+    const sanitized = sanitizeQueryString(text);
+    if (!sanitized) return null;
+
+    // 1. Evaluate Arithmetic (e.g. "5+2", "5 + 2", "what is 482 * 17?")
+    if (arithmeticModule && typeof arithmeticModule.evaluateDeterministicArithmetic === 'function') {
+      const arith = arithmeticModule.evaluateDeterministicArithmetic(sanitized);
+      if (arith && Number.isFinite(arith.result)) {
+        return {
+          canAnswerLocally: true,
+          expression: arith.expression,
+          result: arith.result,
+          ruleId: arithmeticModule.RULE_ID || 'RULE_LOCAL_DETERMINISTIC_ARITHMETIC',
+          isMath: true
+        };
+      }
+    }
+
+    // 2. Evaluate Local Date/Time (e.g. "what time is it", "today's date", "days until Christmas", "days between Jan 1 and March 15", "date in 45 days")
+    if (dateTimeModule && typeof dateTimeModule.classifyDateTimeQuery === 'function') {
+      const dtClass = dateTimeModule.classifyDateTimeQuery(sanitized);
+      if (dtClass && dtClass.eligible) {
+        const now = new Date();
+        let formattedResult = '';
+        let expressionStr = sanitized;
+
+        if (typeof dateTimeModule.evaluateDateTimeCalculation === 'function') {
+          const calc = dateTimeModule.evaluateDateTimeCalculation(sanitized, now);
+          if (calc && calc.success) {
+            formattedResult = calc.result;
+            expressionStr = calc.expression || sanitized;
+          }
+        }
+
+        if (!formattedResult) {
+          if (dtClass.category === 'CURRENT_TIME') {
+            formattedResult = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          } else if (dtClass.category === 'CURRENT_DATE') {
+            formattedResult = now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          } else if (dtClass.category === 'CURRENT_DATETIME') {
+            formattedResult = `${now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+          } else if (dtClass.category === 'CURRENT_DAY_OF_WEEK') {
+            formattedResult = now.toLocaleDateString([], { weekday: 'long' });
+          } else if (dtClass.category === 'CURRENT_YEAR') {
+            formattedResult = String(now.getFullYear());
+          } else if (dtClass.category === 'BROWSER_TIMEZONE') {
+            formattedResult = dateTimeModule.getBrowserExposedTimezone ? dateTimeModule.getBrowserExposedTimezone() : 'Browser-Local';
+          } else {
+            formattedResult = now.toLocaleString();
+          }
+        }
+
+        return {
+          canAnswerLocally: true,
+          expression: expressionStr,
+          result: formattedResult,
+          ruleId: dateTimeModule.RULE_ID || 'RULE_LOCAL_DETERMINISTIC_DATETIME',
+          isMath: false
+        };
+      }
+    }
+
+    // 3. Evaluate Advanced Calculations (percentages, financials, scientific, programmer/bitwise/CIDR, statistics, geometry)
+    if (advancedCalculatorModule && typeof advancedCalculatorModule.evaluateAdvancedCalculation === 'function') {
+      const adv = advancedCalculatorModule.evaluateAdvancedCalculation(sanitized);
+      if (adv && adv.success) {
+        return {
+          canAnswerLocally: true,
+          expression: adv.expression,
+          result: adv.result,
+          ruleId: advancedCalculatorModule.RULE_ID || 'RULE_LOCAL_DETERMINISTIC_ADVANCED_CALCULATOR',
+          isMath: true
+        };
+      }
+    }
+
+    // 4. Evaluate Greetings and Pleasantries (e.g. "Hello", "Hi", "Thanks", "Good morning")
+    // These are trivially handled on-device — no LLM tokens are needed.
+    if (greetingModule && typeof greetingModule.classifyGreeting === 'function') {
+      const greet = greetingModule.classifyGreeting(sanitized);
+      if (greet && greet.isGreeting) {
+        // Pick a canned on-device response based on greeting type
+        const greetingType = greet.type || 'GREETING';
+        const matched = (greet.matchedPhrase || sanitized).toLowerCase();
+
+        let cannedResponse = '';
+        if (greetingType === 'SIGN_OFF') {
+          if (matched.startsWith('thank')) {
+            cannedResponse = "You're welcome! 😊";
+          } else {
+            cannedResponse = 'Goodbye! Have a great day! 👋';
+          }
+        } else if (greetingType === 'PLEASANTRY') {
+          if (matched.includes('what') && (matched.includes('up') || matched.includes('new'))) {
+            cannedResponse = "Not much, just ready to help! What's on your mind today?";
+          } else if (matched.includes('long time') || matched.includes('been a while')) {
+            cannedResponse = "Good to see you! How can I help you today?";
+          } else if (matched.includes('nice to meet') || matched.includes('good to see')) {
+            cannedResponse = "Great to connect with you! How can I assist you today?";
+          } else {
+            cannedResponse = "I'm doing great, thanks for asking! How can I help you today?";
+          }
+        } else {
+          // GREETING
+          if (matched.includes('howdy')) {
+            cannedResponse = 'Howdy! How can I assist you today? 🤠';
+          } else if (matched.includes('morning')) {
+            cannedResponse = 'Good morning! ☀️ How can I help you today?';
+          } else if (matched.includes('afternoon')) {
+            cannedResponse = 'Good afternoon! 🌤️ How can I help you today?';
+          } else if (matched.includes('evening')) {
+            cannedResponse = 'Good evening! 🌙 How can I help you today?';
+          } else if (matched.includes('what') && (matched.includes('up') || matched.includes('new'))) {
+            cannedResponse = "Not much, just ready to help! What's on your mind today?";
+          } else if (matched.includes('good day')) {
+            cannedResponse = 'Good day! How can I assist you today?';
+          } else {
+            cannedResponse = 'Hello! 👋 How can I help you today?';
+          }
+        }
+
+        return {
+          canAnswerLocally: true,
+          expression: sanitized,
+          result: cannedResponse,
+          ruleId: greetingModule.RULE_ID || 'RULE_LOCAL_CONVERSATIONAL_GREETING',
+          isMath: false
+        };
+      }
+    }
+
+    // 5. Evaluate Unit & Temperature Conversions (e.g. "100 F to C", "15 km to miles")
+    if (unitConversionModule && typeof unitConversionModule.evaluateUnitConversion === 'function') {
+      const conv = unitConversionModule.evaluateUnitConversion(sanitized);
+      if (conv && conv.success) {
+        return {
+          canAnswerLocally: true,
+          expression: conv.expression,
+          result: conv.result,
+          ruleId: unitConversionModule.RULE_ID || 'RULE_LOCAL_DETERMINISTIC_UNIT_CONVERSION',
+          isMath: true
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Helper to trigger native Claude submission when user clicks "Ask Claude Anyway"
+   * @param {HTMLElement} editor
+   * @param {string} text
+   */
+  function triggerNativeSubmission(editor, text) {
+    const sendBtn = document.querySelector('button[aria-label*="send" i], button[type="submit"]') ||
+      (document.querySelector('button svg[data-icon="arrow-up"]') && document.querySelector('button svg[data-icon="arrow-up"]').closest('button'));
+
+    if (sendBtn && !sendBtn.disabled) {
+      sendBtn._sqrBypass = true;
+      sendBtn.click();
+      setTimeout(() => { delete sendBtn._sqrBypass; }, 500);
+    } else if (editor) {
+      const enterEvt = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true,
+        altKey: true // bypass flag
+      });
+      editor.dispatchEvent(enterEvt);
+    }
+  }
+
+  /**
    * Keyboard Trigger Observation:
-   * Attaches to document using passive capture.
-   * STRICTLY DOES NOT call preventDefault() or stopPropagation().
+   * Attaches to document using capture.
+   * Cancels native submission ONLY if query is resolved locally on-device.
    */
   function handleKeyDown(event) {
     if (event.key !== 'Enter') return;
     if (event.shiftKey || event.ctrlKey || event.metaKey) return;
     if (event.isComposing) return; // IME composition in progress
+    if (event._sqrHandled) return;
 
     // Verify event originated from or within a contenteditable prompt editor
     const target = event.target;
     if (!target) return;
 
-    const editor = target.closest
-      ? target.closest('div[contenteditable="true"]')
-      : (target.getAttribute && target.getAttribute('contenteditable') === 'true' ? target : null);
+    const elementTarget = target.nodeType === 3 ? target.parentElement : target;
+
+    let editor = null;
+    if (elementTarget && elementTarget.closest) {
+      editor = elementTarget.closest('div[contenteditable="true"]') ||
+        elementTarget.closest('[contenteditable="true"]') ||
+        elementTarget.closest('.ProseMirror');
+    }
+    if (!editor) {
+      const activePrompt = findPromptEditor();
+      if (activePrompt && (activePrompt === document.activeElement || (activePrompt.contains && activePrompt.contains(elementTarget)))) {
+        editor = activePrompt;
+      }
+    }
 
     if (!editor) return;
 
     let text = extractEditorText(editor);
-    if (text.trim().length === 0) return;
+    if (!text || text.length === 0) return;
+
+    const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
+
+    // Check for on-device local resolution (e.g. arithmetic "5+2", datetime)
+    const isLocalAnsweringActive = userSettingsManager && typeof userSettingsManager.isLocalAnsweringEnabled === 'function'
+      ? (typeof userSettingsManager.isOptimizationEnabled !== 'function' || userSettingsManager.isOptimizationEnabled()) &&
+        userSettingsManager.isLocalAnsweringEnabled()
+      : true;
+
+    if (isLocalAnsweringActive && !isBypass && localAnswerController) {
+      const localCandidate = evaluateLocalAnswerCandidate(text);
+      if (localCandidate && localCandidate.canAnswerLocally) {
+        event._sqrHandled = true;
+        if (typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        if (typeof event.stopImmediatePropagation === 'function') {
+          event.stopImmediatePropagation();
+        }
+
+        localAnswerController.showAnswer({
+          expression: localCandidate.expression,
+          result: localCandidate.result,
+          ruleId: localCandidate.ruleId,
+          rawQuery: text,
+          isMath: localCandidate.isMath,
+          editorElement: editor,
+          onAskClaudeAnyway: () => {
+            triggerNativeSubmission(editor, text);
+          }
+        });
+
+        if (metricsTracker) {
+          const diag = buildRouteDiagnostics({
+            routeType: 'LOCAL',
+            cacheOutcome: 'HIT'
+          });
+          metricsTracker.recordActivity({
+            route: 'Local Deterministic Rule',
+            modelTier: 'local',
+            cacheOutcome: 'HIT',
+            tokensSaved: 50,
+            latencyMs: 0.2,
+            status: 'RESOLVED_LOCALLY',
+            diagnostics: diag
+          });
+        }
+
+        if (logger) {
+          logger.info(EventCategory.ROUTING_DECISION, 'Query resolved on-device by local answer card', {
+            expression: localCandidate.expression,
+            result: localCandidate.result,
+            ruleId: localCandidate.ruleId
+          });
+        }
+
+        return;
+      }
+    }
 
     // Least invasive supported mechanism: safe UI-level substitution
     // Single active behavior: semantics-preserving prompt normalization
-    const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
     let substitutionResult = null;
     if (uiSubstitutor && typeof uiSubstitutor.applyPromptOptimization === 'function') {
       substitutionResult = uiSubstitutor.applyPromptOptimization(editor, {
@@ -1017,21 +1360,32 @@
 
   /**
    * Button Trigger Observation:
-   * Attaches to document using passive capture.
-   * STRICTLY DOES NOT call preventDefault() or stopPropagation().
+   * Attaches to document using capture.
+   * Cancels native submission ONLY if query is resolved locally on-device.
    */
   function handleClick(event) {
     const target = event.target;
-    if (!target || !target.closest) return;
+    if (!target) return;
+    if (event._sqrHandled) return;
+
+    const elementTarget = target.nodeType === 3 ? target.parentElement : target;
+    if (!elementTarget || !elementTarget.closest) return;
 
     // Detect click on send button (aria-label containing send/prompt or submit button)
-    const button = target.closest('button');
+    const button = elementTarget.closest('button');
     if (!button || button.disabled) return;
 
+    if (button._sqrBypass) return; // User explicitly clicked "Ask Claude Anyway"
+
     const ariaLabel = (button.getAttribute('aria-label') || '').toLowerCase();
-    const isSendButton = ariaLabel.includes('send') || ariaLabel.includes('prompt') ||
+    const testId = (button.getAttribute('data-testid') || '').toLowerCase();
+    const isSendButton = ariaLabel.includes('send') ||
+      ariaLabel.includes('prompt') ||
+      ariaLabel.includes('submit') ||
+      testId.includes('send') ||
+      testId.includes('submit') ||
       button.getAttribute('type') === 'submit' ||
-      button.querySelector('svg[data-icon="arrow-up"], svg[data-icon="arrow-right"]');
+      Boolean(button.querySelector('svg[data-icon="arrow-up"], svg[data-icon="arrow-right"], svg.lucide-arrow-up'));
 
     if (!isSendButton) return;
 
@@ -1039,10 +1393,71 @@
     if (!editor) return;
 
     let text = extractEditorText(editor);
-    if (text.trim().length === 0) return;
+    if (!text || text.length === 0) return;
+
+    const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
+
+    // Check for on-device local resolution
+    const isLocalAnsweringActive = userSettingsManager && typeof userSettingsManager.isLocalAnsweringEnabled === 'function'
+      ? (typeof userSettingsManager.isOptimizationEnabled !== 'function' || userSettingsManager.isOptimizationEnabled()) &&
+        userSettingsManager.isLocalAnsweringEnabled()
+      : true;
+
+    if (isLocalAnsweringActive && !isBypass && localAnswerController) {
+      const localCandidate = evaluateLocalAnswerCandidate(text);
+      if (localCandidate && localCandidate.canAnswerLocally) {
+        event._sqrHandled = true;
+        if (typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        if (typeof event.stopImmediatePropagation === 'function') {
+          event.stopImmediatePropagation();
+        }
+
+        localAnswerController.showAnswer({
+          expression: localCandidate.expression,
+          result: localCandidate.result,
+          ruleId: localCandidate.ruleId,
+          rawQuery: text,
+          isMath: localCandidate.isMath,
+          editorElement: editor,
+          onAskClaudeAnyway: () => {
+            triggerNativeSubmission(editor, text);
+          }
+        });
+
+        if (metricsTracker) {
+          const diag = buildRouteDiagnostics({
+            routeType: 'LOCAL',
+            cacheOutcome: 'HIT'
+          });
+          metricsTracker.recordActivity({
+            route: 'Local Deterministic Rule',
+            modelTier: 'local',
+            cacheOutcome: 'HIT',
+            tokensSaved: 50,
+            latencyMs: 0.2,
+            status: 'RESOLVED_LOCALLY',
+            diagnostics: diag
+          });
+        }
+
+        if (logger) {
+          logger.info(EventCategory.ROUTING_DECISION, 'Query resolved on-device by local answer card', {
+            expression: localCandidate.expression,
+            result: localCandidate.result,
+            ruleId: localCandidate.ruleId
+          });
+        }
+
+        return;
+      }
+    }
 
     // Least invasive supported mechanism: safe UI-level substitution
-    const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
     let substitutionResult = null;
     if (uiSubstitutor && typeof uiSubstitutor.applyPromptOptimization === 'function') {
       substitutionResult = uiSubstitutor.applyPromptOptimization(editor, {
@@ -1057,9 +1472,11 @@
     notifyQueryObserved(text, 'button_click', { substitution: substitutionResult });
   }
 
-  // Attach global passive listeners (resilient to dynamic DOM mounting and remounting)
-  document.addEventListener('keydown', handleKeyDown, { capture: true, passive: true });
-  document.addEventListener('click', handleClick, { capture: true, passive: true });
+  // Attach global listeners (active cancellation permitted for local rules)
+  window.addEventListener('keydown', handleKeyDown, { capture: true, passive: false });
+  document.addEventListener('keydown', handleKeyDown, { capture: true, passive: false });
+  window.addEventListener('click', handleClick, { capture: true, passive: false });
+  document.addEventListener('click', handleClick, { capture: true, passive: false });
 
   // 5. Dynamic DOM & Route Change Monitoring
   let lastRecordedPath = window.location.pathname;

@@ -81,6 +81,7 @@
     backendEnabled: true,
     optimizationEnabled: true,
     feedbackUiEnabled: true,
+    localAnsweringEnabled: true,
     developerDiagnosticsEnabled: false,
     privacy: DEFAULT_PRIVACY
   });
@@ -123,6 +124,10 @@
 
     if (settings.feedbackUiEnabled !== undefined && typeof settings.feedbackUiEnabled !== 'boolean') {
       return { valid: false, error: 'feedbackUiEnabled must be a boolean if provided' };
+    }
+
+    if (settings.localAnsweringEnabled !== undefined && typeof settings.localAnsweringEnabled !== 'boolean') {
+      return { valid: false, error: 'localAnsweringEnabled must be a boolean if provided' };
     }
 
     if (settings.developerDiagnosticsEnabled !== undefined && typeof settings.developerDiagnosticsEnabled !== 'boolean') {
@@ -172,6 +177,9 @@
       feedbackUiEnabled: typeof overrides.feedbackUiEnabled === 'boolean'
         ? overrides.feedbackUiEnabled
         : (DEFAULT_USER_SETTINGS.feedbackUiEnabled !== undefined ? DEFAULT_USER_SETTINGS.feedbackUiEnabled : true),
+      localAnsweringEnabled: typeof overrides.localAnsweringEnabled === 'boolean'
+        ? overrides.localAnsweringEnabled
+        : (DEFAULT_USER_SETTINGS.localAnsweringEnabled !== undefined ? DEFAULT_USER_SETTINGS.localAnsweringEnabled : true),
       developerDiagnosticsEnabled: typeof overrides.developerDiagnosticsEnabled === 'boolean'
         ? overrides.developerDiagnosticsEnabled
         : (DEFAULT_USER_SETTINGS.developerDiagnosticsEnabled !== undefined ? DEFAULT_USER_SETTINGS.developerDiagnosticsEnabled : false),
@@ -202,11 +210,52 @@
       this.storage = options.storage || null;
       this.listeners = new Set();
       this.currentSettings = createUserSettings(options.initialSettings || {});
+      this._storageChangeListener = null;
+
+      // Popup, content scripts, and the service worker run in separate JavaScript
+      // contexts.  Keeping only an in-memory copy here meant a routing preference
+      // changed in the popup was not reflected in an already-open Claude tab.
+      this._subscribeToStorageChanges();
 
       // Auto-load if storage is provided
       if (this.storage && typeof this.storage.get === 'function') {
         this.load().catch(() => {});
       }
+    }
+
+    /**
+     * Keeps this context synchronized when another extension context changes the
+     * persisted settings. Chrome exposes the event at chrome.storage.onChanged,
+     * not on the individual sync/local storage area.
+     *
+     * @private
+     */
+    _subscribeToStorageChanges() {
+      const changeEvents = typeof chrome !== 'undefined' && chrome.storage
+        ? chrome.storage.onChanged
+        : null;
+
+      if (!changeEvents || typeof changeEvents.addListener !== 'function') {
+        return;
+      }
+
+      this._storageChangeListener = (changes) => {
+        const settingChange = changes && changes[STORAGE_KEY];
+        if (!settingChange) return;
+
+        try {
+          const oldSettings = this.currentSettings;
+          this.currentSettings = settingChange.newValue === undefined
+            ? createUserSettings()
+            : createUserSettings(settingChange.newValue);
+          this._notifyListeners(this.currentSettings, oldSettings);
+        } catch (_) {
+          // Ignore corrupt externally-written values and retain the last known
+          // valid settings so routing continues fail-open.
+        }
+      };
+
+      changeEvents.addListener(this._storageChangeListener);
     }
 
     /**
@@ -317,6 +366,23 @@
      */
     async setDeveloperDiagnosticsEnabled(enabled) {
       return this.updateSettings({ developerDiagnosticsEnabled: Boolean(enabled) });
+    }
+
+    /**
+     * Returns whether local on-device answering is enabled (defaults to true)
+     * @returns {boolean}
+     */
+    isLocalAnsweringEnabled() {
+      return this.currentSettings.localAnsweringEnabled !== false;
+    }
+
+    /**
+     * Toggle or set local answering specifically
+     * @param {boolean} enabled
+     * @returns {Promise<object>}
+     */
+    async setLocalAnsweringEnabled(enabled) {
+      return this.updateSettings({ localAnsweringEnabled: Boolean(enabled) });
     }
 
     /**

@@ -11,38 +11,46 @@
     <!-- Header -->
     <header class="sqr-header">
       <div class="sqr-brand">
-        <span class="sqr-logo-icon">✦</span>
+        <div class="sqr-logo-mark" aria-hidden="true">
+          <span class="sqr-logo-icon">■</span>
+        </div>
         <div class="sqr-brand-text">
           <h1 class="sqr-title">Smart Query Router</h1>
           <span class="sqr-version">v0.1.0</span>
         </div>
       </div>
-      <span class="sqr-status-badge" id="status-indicator">Active</span>
+      <div class="sqr-status-wrapper">
+        <span class="sqr-status-badge" id="status-indicator">Active</span>
+      </div>
     </header>
 
     <!-- Controls Card -->
     <section class="sqr-card sqr-controls-card">
       <div class="sqr-control-row">
         <div class="sqr-control-label">
-          <span class="sqr-label-title">Optimizer Enabled</span>
+          <span class="sqr-label-title">Optimizer</span>
           <span class="sqr-label-desc">Autonomous query optimization</span>
         </div>
-        <label class="sqr-switch">
+        <label class="sqr-switch" title="Toggle Optimizer">
           <input type="checkbox" id="toggle-optimizer" checked>
           <span class="sqr-slider"></span>
         </label>
       </div>
 
+      <div class="sqr-control-divider"></div>
+
       <div class="sqr-control-row">
         <div class="sqr-control-label">
           <span class="sqr-label-title">Routing Mode</span>
-          <span class="sqr-label-desc">Model tier routing preference</span>
+          <span class="sqr-label-desc">Model tier selection policy</span>
         </div>
-        <select id="select-routing-override" class="sqr-select">
-          <option value="automatic">Automatic (Recommended)</option>
-          <option value="prefer-simple">Prefer Simple (Fast/Cheap)</option>
-          <option value="prefer-strong">Prefer Strong (Deep/Complex)</option>
-        </select>
+        <div class="sqr-select-wrapper">
+          <select id="select-routing-override" class="sqr-select">
+            <option value="automatic">Automatic</option>
+            <option value="prefer-simple">Prefer Simple</option>
+            <option value="prefer-strong">Prefer Strong</option>
+          </select>
+        </div>
       </div>
     </section>
 
@@ -51,17 +59,15 @@
       <!-- Token Savings Card -->
       <div class="sqr-card sqr-stat-card">
         <div class="sqr-stat-header">
-          <span class="sqr-stat-icon">⚡</span>
-          <span class="sqr-stat-title">Estimated Token Savings</span>
+          <span class="sqr-stat-title">Token Savings</span>
         </div>
         <div class="sqr-stat-value" id="stat-tokens-saved">0</div>
-        <div class="sqr-stat-sub">From context pruning & caching</div>
+        <div class="sqr-stat-sub">Pruning & caching</div>
       </div>
 
       <!-- Cache Hit Rate Card -->
       <div class="sqr-card sqr-stat-card">
         <div class="sqr-stat-header">
-          <span class="sqr-stat-icon">📦</span>
           <span class="sqr-stat-title">Cache Hit Rate</span>
         </div>
         <div class="sqr-stat-value" id="stat-cache-hit-rate">0.0%</div>
@@ -72,7 +78,7 @@
     <!-- Route Distribution Card -->
     <section class="sqr-card sqr-distribution-card">
       <div class="sqr-dist-header">
-        <span class="sqr-stat-title">Route Distribution (Small vs Strong)</span>
+        <span class="sqr-stat-title">Route Distribution</span>
         <span class="sqr-dist-total" id="stat-total-routed">0 queries</span>
       </div>
       <div class="sqr-bar-container">
@@ -89,14 +95,14 @@
       </div>
     </section>
 
-    <!-- Developer Diagnostics Card (Optional) -->
+    <!-- Developer Diagnostics Card -->
     <section class="sqr-card sqr-diagnostics-card" id="developer-diagnostics-card">
       <div class="sqr-control-row">
         <div class="sqr-control-label">
           <span class="sqr-label-title">Developer Diagnostics</span>
-          <span class="sqr-label-desc">Routing reason codes & internal signals</span>
+          <span class="sqr-label-desc">Reason codes & internal signals</span>
         </div>
-        <label class="sqr-switch">
+        <label class="sqr-switch" title="Toggle Diagnostics">
           <input type="checkbox" id="toggle-diagnostics">
           <span class="sqr-slider"></span>
         </label>
@@ -105,14 +111,14 @@
       <div class="sqr-diagnostics-container" id="diagnostics-container" style="display: none;">
         <div class="sqr-diag-header">
           <div class="sqr-diag-reason-wrap">
-            <span class="sqr-diag-badge" id="diag-reason-code">SIMPLE_TASK_SIGNAL</span>
-            <span class="sqr-diag-category" id="diag-task-category">General</span>
+            <span class="sqr-diag-badge" id="diag-reason-code">AWAITING_QUERY</span>
+            <span class="sqr-diag-category" id="diag-task-category">No data yet</span>
           </div>
-          <span class="sqr-diag-route-name" id="diag-route-name">simple-model candidate</span>
+          <span class="sqr-diag-route-name" id="diag-route-name">—</span>
         </div>
 
         <p class="sqr-diag-explanation" id="diag-explanation">
-          Query evaluated as self-contained with low complexity signals.
+          Submit a query on Claude to see routing diagnostics here.
         </p>
 
         <div class="sqr-diag-signals" id="diag-signals-list"></div>
@@ -121,7 +127,6 @@
         <div class="sqr-internal-signals-box" id="diag-internal-signals-box">
           <div class="sqr-internal-signals-header">
             <div class="sqr-internal-signals-title">
-              <span class="sqr-signal-icon">🧭</span>
               <span id="diag-internal-label">Internal Heuristic Signal</span>
             </div>
             <span class="sqr-signal-score-badge" id="diag-internal-score">0.18 (LOW)</span>
@@ -135,7 +140,6 @@
         <!-- Escalation Trace Box -->
         <div class="sqr-escalation-box" id="diag-escalation-box" style="display: none;">
           <div class="sqr-escalation-header">
-            <span class="sqr-escalation-icon">⚡</span>
             <span class="sqr-escalation-title">Escalation Evaluator Trace</span>
           </div>
           <div class="sqr-escalation-details" id="diag-escalation-details"></div>
@@ -152,8 +156,8 @@
 
       <div class="sqr-activity-container" id="activity-container">
         <div class="sqr-empty-state" id="activity-empty">
-          <span class="sqr-empty-icon">📊</span>
-          <span>No recent optimizer activity recorded yet.</span>
+          <span class="sqr-empty-symbol">○</span>
+          <span>No recent optimizer activity recorded yet</span>
         </div>
         <ul class="sqr-activity-list" id="activity-list" style="display: none;">
           <!-- Dynamically populated -->
@@ -164,10 +168,10 @@
     <!-- Footer -->
     <footer class="sqr-footer">
       <div class="sqr-privacy-note">
-        <span class="sqr-lock-icon">🔒</span>
-        <span>Privacy Preserving: Raw prompts and conversation text are never stored or displayed.</span>
+        <span class="sqr-privacy-dot">·</span>
+        <span>Raw prompts and conversations are never stored</span>
       </div>
-      <button class="sqr-btn-reset" id="btn-reset-metrics" title="Reset all metrics back to zero">Reset Stats</button>
+      <button class="sqr-btn-reset" id="btn-reset-metrics" title="Reset all metrics back to zero">Reset</button>
     </footer>
   </div>
 

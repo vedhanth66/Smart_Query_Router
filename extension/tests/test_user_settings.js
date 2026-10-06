@@ -190,8 +190,43 @@ console.log('Test 6: Simulated storage persistence and async load...');
   assert.strictEqual(listenerEvents.length, 1); // Not called after removal
   console.log('PASS: Listener subscription and removal verified');
 
-  // Test 8: Non-breaking coexistence with future settings
-  console.log('Test 8: Extensibility for future settings page...');
+  // Test 8: Cross-context storage synchronization (popup -> content script)
+  console.log('Test 8: Synchronizing routing preferences across extension contexts...');
+  const priorChrome = global.chrome;
+  let storageChangeListener = null;
+  global.chrome = {
+    storage: {
+      onChanged: {
+        addListener: (listenerFn) => { storageChangeListener = listenerFn; }
+      }
+    }
+  };
+
+  const syncedManager = new UserSettingsManager({ storage: mockStorage });
+  const syncEvents = [];
+  syncedManager.addListener((newSettings, oldSettings) => {
+    syncEvents.push({ from: oldSettings.routingOverride, to: newSettings.routingOverride });
+  });
+
+  assert.ok(storageChangeListener, 'A Chrome storage change listener must be registered');
+  storageChangeListener({
+    [STORAGE_KEY]: {
+      oldValue: syncedManager.getSettings(),
+      newValue: { ...syncedManager.getSettings(), routingOverride: 'prefer-strong' }
+    }
+  }, 'sync');
+  assert.strictEqual(syncedManager.getRoutingOverride(), 'prefer-strong');
+  assert.deepStrictEqual(syncEvents, [{ from: 'automatic', to: 'prefer-strong' }]);
+
+  if (priorChrome === undefined) {
+    delete global.chrome;
+  } else {
+    global.chrome = priorChrome;
+  }
+  console.log('PASS: Popup routing preferences propagate to an already-open Claude tab');
+
+  // Test 9: Non-breaking coexistence with future settings
+  console.log('Test 9: Extensibility for future settings page...');
   const extendedManager = new UserSettingsManager();
   await extendedManager.updateSettings({ routingOverride: 'prefer-strong' });
   const snapshot = extendedManager.getSettings();

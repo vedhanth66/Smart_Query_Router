@@ -8,6 +8,7 @@
 const assert = require('assert');
 const {
   classifyDateTimeQuery,
+  evaluateDateTimeCalculation,
   getBrowserExposedTimezone,
   dateTimeRule,
   RULE_ID,
@@ -30,12 +31,27 @@ const eligibleCases = [
   { input: "what's the time right now?", expectedCat: DateTimeCategory.CURRENT_TIME },
   { input: 'current time', expectedCat: DateTimeCategory.CURRENT_TIME },
   { input: 'what is the local time?', expectedCat: DateTimeCategory.CURRENT_TIME },
+  { input: 'time', expectedCat: DateTimeCategory.CURRENT_TIME },
+  { input: 'the time', expectedCat: DateTimeCategory.CURRENT_TIME },
   { input: "what is today's date?", expectedCat: DateTimeCategory.CURRENT_DATE },
   { input: 'today date', expectedCat: DateTimeCategory.CURRENT_DATE },
+  { input: 'date', expectedCat: DateTimeCategory.CURRENT_DATE },
+  { input: 'the date', expectedCat: DateTimeCategory.CURRENT_DATE },
+  { input: 'today', expectedCat: DateTimeCategory.CURRENT_DATE },
+  { input: 'date and time', expectedCat: DateTimeCategory.CURRENT_DATETIME },
+  { input: 'time and date', expectedCat: DateTimeCategory.CURRENT_DATETIME },
+  { input: 'datetime', expectedCat: DateTimeCategory.CURRENT_DATETIME },
+  { input: 'what is the date and time right now?', expectedCat: DateTimeCategory.CURRENT_DATETIME },
+  { input: 'what is the date and time', expectedCat: DateTimeCategory.CURRENT_DATETIME },
+  { input: '\u200Bdate\u200B', expectedCat: DateTimeCategory.CURRENT_DATE },
+  { input: '\uFEFFtime\u200C', expectedCat: DateTimeCategory.CURRENT_TIME },
+  { input: '\u200Bdate and time\u200B', expectedCat: DateTimeCategory.CURRENT_DATETIME },
   { input: 'what day is it today?', expectedCat: DateTimeCategory.CURRENT_DAY_OF_WEEK },
   { input: 'what year is it?', expectedCat: DateTimeCategory.CURRENT_YEAR },
+  { input: 'year', expectedCat: DateTimeCategory.CURRENT_YEAR },
   { input: 'what is my timezone?', expectedCat: DateTimeCategory.BROWSER_TIMEZONE },
-  { input: 'current timezone', expectedCat: DateTimeCategory.BROWSER_TIMEZONE }
+  { input: 'current timezone', expectedCat: DateTimeCategory.BROWSER_TIMEZONE },
+  { input: 'timezone', expectedCat: DateTimeCategory.BROWSER_TIMEZONE }
 ];
 
 for (const { input, expectedCat } of eligibleCases) {
@@ -127,6 +143,47 @@ const weatherEvent = createDetectedQueryEvent({
 });
 const weatherDecision = engine.evaluate(weatherEvent);
 assert.strictEqual(weatherDecision.outcome, DecisionOutcome.NO_OPTIMIZATION);
-console.log('PASS: Ineligible query falls through to baseline NO_OPTIMIZATION');
+// Test 7: Date difference, milestones, and date offsets
+console.log('Test 7: Date difference and Date offset calculations...');
+const fixedDate = new Date(2026, 9, 6, 12, 0, 0); // Oct 6, 2026
+
+// 7A: Days between dates
+const betweenRes = evaluateDateTimeCalculation('days between Jan 1 and March 15', fixedDate);
+assert(betweenRes, 'Expected result for days between Jan 1 and March 15');
+assert.strictEqual(betweenRes.category, DateTimeCategory.DATE_DIFFERENCE);
+assert.strictEqual(betweenRes.result, '73 days');
+
+// 7B: Days until milestone
+const untilRes = evaluateDateTimeCalculation('days until Christmas', fixedDate);
+assert(untilRes, 'Expected result for days until Christmas');
+assert.strictEqual(untilRes.category, DateTimeCategory.DATE_DIFFERENCE);
+assert(untilRes.result.includes('days until Christmas'));
+
+// 7C: Date offset (future)
+const offsetFuture = evaluateDateTimeCalculation('date in 45 days', fixedDate);
+assert(offsetFuture, 'Expected result for date in 45 days');
+assert.strictEqual(offsetFuture.category, DateTimeCategory.DATE_OFFSET);
+assert(offsetFuture.result.includes('2026'));
+
+// 7D: Date offset (past)
+const offsetPast = evaluateDateTimeCalculation('date 3 weeks ago', fixedDate);
+assert(offsetPast, 'Expected result for date 3 weeks ago');
+assert.strictEqual(offsetPast.category, DateTimeCategory.DATE_OFFSET);
+assert(offsetPast.result.includes('2026'));
+
+// 7E: Classification
+const classBetween = classifyDateTimeQuery('days between 2026-01-01 and 2026-03-15');
+assert.strictEqual(classBetween.eligible, true);
+assert.strictEqual(classBetween.category, DateTimeCategory.DATE_DIFFERENCE);
+
+const classUntil = classifyDateTimeQuery('days until New Year');
+assert.strictEqual(classUntil.eligible, true);
+assert.strictEqual(classUntil.category, DateTimeCategory.DATE_DIFFERENCE);
+
+const classOffset = classifyDateTimeQuery('45 days from today');
+assert.strictEqual(classOffset.eligible, true);
+assert.strictEqual(classOffset.category, DateTimeCategory.DATE_OFFSET);
+
+console.log('PASS: Date difference, milestones, and offsets verified successfully');
 
 console.log('--- ALL DETERMINISTIC DATE/TIME TESTS PASSED ---');

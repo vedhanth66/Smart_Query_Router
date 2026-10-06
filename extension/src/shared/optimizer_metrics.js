@@ -225,7 +225,7 @@
       const tier = sanitized.modelTier.toLowerCase();
       const routeStr = sanitized.route.toLowerCase();
 
-      if (tier === 'strong' || routeStr.includes('strong')) {
+      if (tier === 'strong' || routeStr.includes('strong') || routeStr.includes('complex')) {
         this.strongRouteCount += 1;
       } else if (tier === 'local' || routeStr.includes('rule') || routeStr.includes('local')) {
         this.localRouteCount += 1;

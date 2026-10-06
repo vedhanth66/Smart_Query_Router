@@ -309,7 +309,10 @@
 
     // 4. Backend Call & Caching Observation (if enabled)
     const isBackendEnabled = userSettingsManager && typeof userSettingsManager.isBackendEnabled === 'function'
-      ? userSettingsManager.isBackendEnabled()
+      ? userSettingsManager.isBackendEnabled() && (
+          typeof userSettingsManager.isOptimizationCategoryEnabled !== 'function' ||
+          userSettingsManager.isOptimizationCategoryEnabled('backendRouting')
+        )
       : true;
 
     let backendCalled = false;

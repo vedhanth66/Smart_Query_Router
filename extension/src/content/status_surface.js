@@ -127,10 +127,10 @@
         root.style.width = '340px';
         root.style.maxHeight = 'calc(100vh - 32px)';
         root.style.zIndex = '999998';
-        root.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        root.style.fontSize = '12.5px';
-        root.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1)';
-        root.style.borderRadius = '12px';
+        root.style.fontFamily = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
+        root.style.fontSize = '12px';
+        root.style.boxShadow = '0 16px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08)';
+        root.style.borderRadius = '8px';
         root.style.overflow = 'hidden';
         root.style.display = 'none';
 
@@ -174,11 +174,11 @@
       } else {
         for (const item of activities.slice(0, 5)) {
           const reasonBadge = (isDiagEnabled && item.diagnostics && item.diagnostics.reasonCode)
-            ? `<span style="background: rgba(129, 140, 248, 0.2); color: #818cf8; padding: 1px 5px; border-radius: 4px; font-size: 9px; font-weight: 600;">${item.diagnostics.reasonCode}</span>`
+            ? `<span style="background: rgba(255, 255, 255, 0.08); color: #e4e4e7; border: 1px solid rgba(255, 255, 255, 0.1); padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 500; font-family: ui-monospace, monospace;">${item.diagnostics.reasonCode}</span>`
             : '';
-          const savingsBadge = item.tokensSaved > 0 ? `<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 1px 5px; border-radius: 4px; font-size: 10px;">+${item.tokensSaved} tok</span>` : '';
-          const cacheBadge = item.cacheOutcome === 'HIT' ? '<span style="background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 1px 5px; border-radius: 4px; font-size: 10px;">HIT</span>' : '';
-          const latencyStr = item.latencyMs ? `<span style="color: #71717a; font-size: 10px;">${item.latencyMs}ms</span>` : '';
+          const savingsBadge = item.tokensSaved > 0 ? `<span style="background: rgba(255, 255, 255, 0.1); color: #ffffff; padding: 1px 5px; border-radius: 3px; font-size: 9.5px; font-weight: 600;">+${item.tokensSaved} tok</span>` : '';
+          const cacheBadge = item.cacheOutcome === 'HIT' ? '<span style="background: rgba(255, 255, 255, 0.08); color: #f4f4f5; padding: 1px 5px; border-radius: 3px; font-size: 9.5px;">HIT</span>' : '';
+          const latencyStr = item.latencyMs ? `<span style="color: #71717a; font-size: 9.5px;">${item.latencyMs}ms</span>` : '';
 
           activityRowsHtml += `
             <div style="padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); display: flex; justify-content: space-between; align-items: center;">
@@ -217,31 +217,31 @@
             const compStr = (esc.completeness !== null && esc.completeness !== undefined) ? `Completeness: ${(esc.completeness * 100).toFixed(0)}%` : '';
             const issuesStr = esc.detectedIssues && esc.detectedIssues.length > 0 ? `Issues: ${esc.detectedIssues.join(', ')}` : '';
             escalationHtml = `
-              <div style="margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 10px; color: #fca5a5;">
-                <div style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">⚠️ Escalation Evaluator Trace</div>
+              <div style="margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #1a1a1e; border: 1px solid rgba(255, 255, 255, 0.16); font-size: 10px; color: #d4d4d8;">
+                <div style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #f4f4f5;">Escalation Evaluator Trace</div>
                 <div style="margin-top: 2px;">${[compStr, issuesStr].filter(Boolean).join(' · ')}</div>
               </div>
             `;
           }
 
           diagnosticsPanelHtml = `
-            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #1a1a1e; display: flex; flex-direction: column; gap: 6px;">
+            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #18181c; display: flex; flex-direction: column; gap: 6px;">
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; gap: 6px; align-items: center;">
-                  <span style="font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: rgba(129, 140, 248, 0.25); color: #818cf8; letter-spacing: 0.04em;">${d.reasonCode}</span>
-                  <span style="font-size: 9.5px; color: #71717a; text-transform: uppercase;">${d.taskCategory || 'GENERAL'}</span>
+                  <span style="font-size: 9.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: #f4f4f5; border: 1px solid rgba(255, 255, 255, 0.14); letter-spacing: 0.04em; font-family: ui-monospace, monospace;">${d.reasonCode}</span>
+                  <span style="font-size: 9px; color: #71717a; text-transform: uppercase;">${d.taskCategory || 'GENERAL'}</span>
                 </div>
-                <span style="font-size: 10px; color: #a1a1aa; font-style: italic;">${latestAct.route}</span>
+                <span style="font-size: 10px; color: #a1a1aa;">${latestAct.route}</span>
               </div>
-              <div style="font-size: 11px; color: #e4e4e7; line-height: 1.35;">${d.reasonExplanation}</div>
+              <div style="font-size: 11px; color: #d4d4d8; line-height: 1.35;">${d.reasonExplanation}</div>
 
               <!-- Internal Heuristic Signal Box -->
-              <div style="margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: #141416; border: 1px solid rgba(255,255,255,0.06);">
+              <div style="margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: #111114; border: 1px solid rgba(255,255,255,0.06);">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-size: 9.5px; font-weight: 600; color: #d4d4d8; text-transform: uppercase; letter-spacing: 0.03em;">🧭 Internal Heuristic Signal</span>
-                  <span style="font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 9999px; background: rgba(56, 189, 248, 0.15); color: #38bdf8;">${isig ? `${isig.level || 'SIGNAL'} (${isig.score !== null && isig.score !== undefined ? isig.score.toFixed(2) : 'N/A'})` : 'N/A'}</span>
+                  <span style="font-size: 9.5px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.03em;">Internal Heuristic Signal</span>
+                  <span style="font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 9999px; background: rgba(255, 255, 255, 0.08); color: #f4f4f5; font-variant-numeric: tabular-nums;">${isig ? `${isig.level || 'SIGNAL'} (${isig.score !== null && isig.score !== undefined ? isig.score.toFixed(2) : 'N/A'})` : 'N/A'}</span>
                 </div>
-                <div style="font-size: 9px; color: #71717a; font-style: italic; margin-top: 2px;">Indicative heuristic signal only; not an objective complexity measure.</div>
+                <div style="font-size: 9px; color: #52525b; font-style: italic; margin-top: 2px;">Indicative heuristic signal only; not an objective complexity measure.</div>
                 ${factorTagsHtml ? `<div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;">${factorTagsHtml}</div>` : ''}
               </div>
               ${escalationHtml}
@@ -249,7 +249,7 @@
           `;
         } else {
           diagnosticsPanelHtml = `
-            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #1a1a1e; font-size: 11px; color: #71717a; text-align: center;">
+            <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #18181c; font-size: 11px; color: #71717a; text-align: center;">
               No developer diagnostics recorded yet for this session.
             </div>
           `;
@@ -257,37 +257,37 @@
       }
 
       this.rootElement.innerHTML = `
-        <div style="background: #18181b; color: #f4f4f5; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;">
+        <div style="background: #141417; color: #f4f4f5; border: 1px solid rgba(255,255,255,0.09); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 16px 36px rgba(0,0,0,0.6);">
           <!-- Header -->
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); background: #141416;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span style="color: #fbbf24; font-size: 14px;">✦</span>
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #0c0c0e;">
+            <div style="display: flex; align-items: center; gap: 7px;">
+              <span style="font-size: 8px; color: #e4e4e7; line-height: 1;">■</span>
               <span style="font-weight: 600; font-size: 12.5px;">Optimizer Status</span>
-              <span style="font-size: 10px; padding: 1px 6px; border-radius: 999px; background: ${isOptEnabled ? 'rgba(52,211,153,0.15)' : 'rgba(245,158,11,0.15)'}; color: ${isOptEnabled ? '#34d399' : '#fbbf24'}; font-weight: 600;">
+              <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,0.07); color: ${isOptEnabled ? '#f4f4f5' : '#71717a'}; border: 1px solid rgba(255,255,255,0.1); font-weight: 500;">
                 ${isOptEnabled ? 'ACTIVE' : 'PAUSED'}
               </span>
             </div>
-            <button id="sqr-surface-close" style="background: none; border: none; color: #9ca3af; font-size: 14px; cursor: pointer; padding: 2px 4px;" title="Close (Esc)">✕</button>
+            <button id="sqr-surface-close" style="background: none; border: none; color: #71717a; font-size: 13px; cursor: pointer; padding: 2px 4px;" title="Close (Esc)">✕</button>
           </div>
 
           <!-- Controls -->
-          <div style="padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06);">
-            <span style="color: #d4d4d8; font-size: 11.5px;">Optimizer State</span>
+          <div style="padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color: #d4d4d8; font-size: 11.5px; font-weight: 500;">Optimizer State</span>
             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
               <input type="checkbox" id="sqr-surface-toggle" ${isOptEnabled ? 'checked' : ''} style="cursor: pointer;">
-              <span style="font-size: 11px; color: ${isOptEnabled ? '#34d399' : '#9ca3af'};">${isOptEnabled ? 'Enabled' : 'Disabled'}</span>
+              <span style="font-size: 11px; color: ${isOptEnabled ? '#f4f4f5' : '#71717a'};">${isOptEnabled ? 'Enabled' : 'Disabled'}</span>
             </label>
           </div>
 
           <!-- Developer Diagnostics Toggle -->
-          <div style="padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(129,140,248,0.04);">
+          <div style="padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.02);">
             <div>
               <div style="color: #d4d4d8; font-size: 11px; font-weight: 500;">Developer Diagnostics</div>
-              <div style="color: #71717a; font-size: 9.5px;">Routing reason codes & signals</div>
+              <div style="color: #52525b; font-size: 9.5px;">Routing reason codes & signals</div>
             </div>
             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
               <input type="checkbox" id="sqr-surface-diag-toggle" ${isDiagEnabled ? 'checked' : ''} style="cursor: pointer;">
-              <span style="font-size: 10.5px; color: ${isDiagEnabled ? '#818cf8' : '#9ca3af'};">${isDiagEnabled ? 'Shown' : 'Hidden'}</span>
+              <span style="font-size: 10.5px; color: ${isDiagEnabled ? '#f4f4f5' : '#71717a'};">${isDiagEnabled ? 'Shown' : 'Hidden'}</span>
             </label>
           </div>
 
@@ -295,43 +295,43 @@
           ${diagnosticsPanelHtml}
 
           <!-- Metrics Row -->
-          <div style="padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.06);">
-            <div style="background: #27272a; padding: 8px; border-radius: 8px;">
-              <div style="font-size: 10px; color: #a1a1aa; text-transform: uppercase;">Token Savings</div>
-              <div style="font-size: 16px; font-weight: 700; color: #38bdf8; margin-top: 2px;">${summary.estimatedTokenSavings.formatted}</div>
+          <div style="padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="background: #1a1a1e; border: 1px solid rgba(255,255,255,0.06); padding: 8px; border-radius: 6px;">
+              <div style="font-size: 9.5px; color: #71717a; text-transform: uppercase; letter-spacing: 0.04em;">Token Savings</div>
+              <div style="font-size: 18px; font-weight: 600; color: #ffffff; margin-top: 2px; font-variant-numeric: tabular-nums;">${summary.estimatedTokenSavings.formatted}</div>
             </div>
-            <div style="background: #27272a; padding: 8px; border-radius: 8px;">
-              <div style="font-size: 10px; color: #a1a1aa; text-transform: uppercase;">Cache Hit Rate</div>
-              <div style="font-size: 16px; font-weight: 700; color: #34d399; margin-top: 2px;">${summary.cacheHitRate.percentage}</div>
+            <div style="background: #1a1a1e; border: 1px solid rgba(255,255,255,0.06); padding: 8px; border-radius: 6px;">
+              <div style="font-size: 9.5px; color: #71717a; text-transform: uppercase; letter-spacing: 0.04em;">Cache Hit Rate</div>
+              <div style="font-size: 18px; font-weight: 600; color: #ffffff; margin-top: 2px; font-variant-numeric: tabular-nums;">${summary.cacheHitRate.percentage}</div>
             </div>
           </div>
 
           <!-- Route Distribution -->
-          <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">
-            <div style="display: flex; justify-content: space-between; font-size: 10.5px; color: #a1a1aa; margin-bottom: 4px;">
-              <span>Small vs Strong Distribution</span>
-              <span>${dist.totalRouted} queries</span>
+          <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; justify-content: space-between; font-size: 10.5px; color: #71717a; margin-bottom: 4px;">
+              <span>Route Distribution</span>
+              <span style="font-variant-numeric: tabular-nums;">${dist.totalRouted} queries</span>
             </div>
-            <div style="height: 6px; border-radius: 3px; background: #27272a; overflow: hidden; display: flex;">
-              <div style="width: ${smallWidth}%; background: #34d399;"></div>
-              <div style="width: ${strongWidth}%; background: #818cf8;"></div>
+            <div style="height: 5px; border-radius: 999px; background: #27272a; overflow: hidden; display: flex;">
+              <div style="width: ${smallWidth}%; background: #e4e4e7;"></div>
+              <div style="width: ${strongWidth}%; background: #3f3f46;"></div>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 10px; color: #a1a1aa; margin-top: 4px;">
-              <span>● Simple: ${dist.smallPercentage} (${dist.smallCount})</span>
-              <span>● Strong: ${dist.strongPercentage} (${dist.strongCount})</span>
+              <span>Simple: ${dist.smallPercentage} (${dist.smallCount})</span>
+              <span>Strong: ${dist.strongPercentage} (${dist.strongCount})</span>
             </div>
           </div>
 
           <!-- Recent Activity -->
-          <div style="padding: 6px 14px 2px; font-size: 10.5px; font-weight: 600; color: #a1a1aa; text-transform: uppercase;">Recent Activity</div>
+          <div style="padding: 6px 14px 2px; font-size: 10px; font-weight: 600; color: #71717a; text-transform: uppercase; letter-spacing: 0.04em;">Recent Activity</div>
           <div style="max-height: 120px; overflow-y: auto;">
             ${activityRowsHtml}
           </div>
 
           <!-- Footer -->
-          <div style="padding: 6px 14px; background: #141416; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #71717a;">
-            <span>🔒 Zero prompt/conversation text saved</span>
-            <span>Shortcut: Alt+S</span>
+          <div style="padding: 6px 14px; background: #0c0c0e; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: #52525b;">
+            <span>· Zero prompt/conversation text saved</span>
+            <span>Alt+S</span>
           </div>
         </div>
       `;

@@ -28,28 +28,41 @@
   });
 
   const DEFAULT_CONFIG = Object.freeze({
-    maxWordCount: 5,
-    maxCharCount: 40,
+    maxWordCount: 8,
+    maxCharCount: 60,
     standaloneGreetings: [
-      'hi', 'hello', 'hey', 'hiya', 'howdy',
-      'good morning', 'good afternoon', 'good evening', 'greetings'
+      'hi', 'hello', 'hey', 'hiya', 'heya', 'howdy',
+      'good morning', 'good afternoon', 'good evening', 'good day',
+      'greetings', 'greetings and salutations'
     ],
     conversationalPleasantries: [
-      'how are you', 'how are you doing', 'how is it going', "how's it going",
-      'hope you are well', 'hope you are doing well', 'how have you been'
+      'how are you', 'how are you doing', 'how is it going', "how's it going", "hows it going",
+      'how do you do', "what's up", 'what is up', 'whats up', "what's new", 'what is new',
+      'how are things', "how's life", 'how have you been', 'hope you are well',
+      "hope you're well", 'hope you are doing well', "hope you're doing well",
+      'nice to meet you', 'good to see you', 'good to connect', 'long time no see',
+      'long time no chat', 'it has been a while', "it's been a while", 'everything okay',
+      'everything going well', 'how is everything', "how's everything",
+      'good to see you again', 'nice to see you again', 'glad to see you',
+      'how is your day', "how's your day", 'how is your evening', "how's your evening",
+      'hope all is well', 'hope everything is okay', "hope everything's okay",
+      "what's happening", "what's the latest", "what's up with you", "how are things with you",
+      "how's everything going", "how's life treating you", "what's on your mind",
+      "what's been going on", "what's new today", "it's good to connect", "good to connect again"
     ],
     signOffs: [
       'thanks', 'thank you', 'thanks a lot', 'thank you so much',
       'bye', 'goodbye', 'see you', 'have a good day', 'have a great day'
     ],
     allowedAddresses: [
-      'claude', 'there', 'assistant', 'bot', 'friend'
+      'claude', 'there', 'assistant', 'bot', 'friend', 'partner', 'sunshine', 'stranger'
     ]
   });
 
   // Markers indicating substantive requests, questions, or instructions
-  // Any presence of these words immediately disqualifies a prompt from being a trivial greeting
-  const SUBSTANTIVE_INTENT_PATTERN = /\b(write|explain|create|help|code|tell|show|give|what|why|where|when|who|which|how to|can you|could you|would you|will you|fix|debug|find|search|is it|are you able|do you|please|make|generate|build|solve)\b/i;
+  // Negative lookaheads preserve conversational pleasantries ("what's up", "what's new", "how do you do")
+  // while strictly disqualifying any task, code, question, or work instructions.
+  const SUBSTANTIVE_INTENT_PATTERN = /\b(write|explain|create|help|code|tell|show|give|why|where|when|who|which|how to|can you|could you|would you|will you|fix|debug|find|search|is it|are you able|do you(?!\s+do\b)|please|make|generate|build|solve|what\s+(?!up\b|new\b|s\s+up\b|s\s+new\b|s\s+happening\b|s\s+the\s+latest\b|s\s+been\s+going\b))\b/i;
 
   /**
    * Normalizes input text for greeting inspection
@@ -59,8 +72,11 @@
   function normalizeGreetingText(text) {
     if (typeof text !== 'string') return '';
     return text
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+      .replace(/\u00A0/g, ' ')
       .trim()
       .toLowerCase()
+      .replace(/[\u2018\u2019]/g, "'")
       .replace(/[!?,;:\.\(\)]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -77,7 +93,10 @@
       return { isGreeting: false, reason: 'Invalid non-string input.' };
     }
 
-    const trimmed = rawPrompt.trim();
+    const trimmed = rawPrompt
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+      .replace(/\u00A0/g, ' ')
+      .trim();
     if (trimmed.length === 0) {
       return { isGreeting: false, reason: 'Ineligible: empty prompt.' };
     }
@@ -145,7 +164,7 @@
         };
       }
 
-      // Check greeting + address: e.g. "hello claude", "hi there"
+      // Check greeting + address: e.g. "hello claude", "hi there", "howdy partner"
       for (const addr of config.allowedAddresses) {
         if (normalized === `${greeting} ${addr}`) {
           return {
@@ -154,6 +173,48 @@
             matchedPhrase: normalized,
             reason: `Eligible: matched addressed greeting "${greeting} ${addr}".`
           };
+        }
+      }
+    }
+
+    // 6. Compound greeting + pleasantry matching (e.g. "hi how are you", "good morning how are you")
+    for (const greeting of config.standaloneGreetings) {
+      for (const pleasantry of config.conversationalPleasantries) {
+        if (
+          normalized === `${greeting} ${pleasantry}` ||
+          normalized === `${greeting} there ${pleasantry}` ||
+          normalized === `${pleasantry} ${greeting}`
+        ) {
+          return {
+            isGreeting: true,
+            type: GreetingType.GREETING,
+            matchedPhrase: normalized,
+            reason: `Eligible: matched compound greeting and pleasantry "${greeting} ${pleasantry}".`
+          };
+        }
+      }
+    }
+
+    // Double greeting compound: e.g. "hey good morning how are you"
+    for (const g1 of ['hey', 'hello', 'hi']) {
+      for (const g2 of ['good morning', 'good afternoon', 'good evening']) {
+        if (normalized === `${g1} ${g2}`) {
+          return {
+            isGreeting: true,
+            type: GreetingType.GREETING,
+            matchedPhrase: normalized,
+            reason: `Eligible: matched compound greeting "${g1} ${g2}".`
+          };
+        }
+        for (const p of config.conversationalPleasantries) {
+          if (normalized === `${g1} ${g2} ${p}`) {
+            return {
+              isGreeting: true,
+              type: GreetingType.GREETING,
+              matchedPhrase: normalized,
+              reason: `Eligible: matched compound greeting "${g1} ${g2} ${p}".`
+            };
+          }
         }
       }
     }

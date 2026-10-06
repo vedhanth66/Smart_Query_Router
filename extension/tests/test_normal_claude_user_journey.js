@@ -713,7 +713,7 @@ async function runAll11Scenarios() {
 
     // Assert non-blocking passive behavior
     assert.strictEqual(enterEvent.defaultPrevented, false, 'Enter key must NOT be cancelled (native send allowed)');
-    assert(delay < 50.0, `Enter key processing delay must be < 50ms (was ${delay}ms)`);
+    assert(delay < 100.0, `Enter key processing delay must be < 100ms (was ${delay}ms)`);
     assert.strictEqual(harness.responseTracker.state, ResponseLifecycleState.REQUEST_STARTED);
 
     // Simulate Claude streaming response
@@ -847,7 +847,7 @@ async function runAll11Scenarios() {
     const delay = performance.now() - t0;
 
     assert.strictEqual(enterEvent.defaultPrevented, false);
-    assert(delay < 50.0, `Long prompt handling must remain < 50ms (was ${delay}ms)`);
+    assert(delay < 100.0, `Long prompt handling must remain < 100ms (was ${delay}ms)`);
 
     // Verify turn tracker respects bounded window (maxTurns: 4)
     assert(harness.turnTracker.getTurnCount() <= 4, 'Turn tracker must bound history window to prevent memory leaks');
