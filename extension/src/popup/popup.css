@@ -318,6 +318,10 @@ input:checked + .sqr-slider:before {
   padding: 12px;
 }
 
+.sqr-stat-card-wide {
+  grid-column: 1 / -1;
+}
+
 .sqr-stat-header {
   display: flex;
   align-items: center;
@@ -726,6 +730,11 @@ input:checked + .sqr-slider:before {
   background: rgba(255, 255, 255, 0.12);
   color: var(--sqr-mono-bright);
   font-weight: 600;
+}
+
+.sqr-badge-consumed {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--sqr-text-secondary);
 }
 
 .sqr-badge-reason {

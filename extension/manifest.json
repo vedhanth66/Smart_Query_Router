@@ -23,7 +23,16 @@
       "matches": [
         "https://claude.ai/*"
       ],
+      "css": [
+        "src/styles.css"
+      ],
       "js": [
+        "src/content/constants.js",
+        "src/content/bridge-client.js",
+        "src/vendor/o200k_base.js",
+        "src/content/tokens.js",
+        "src/content/ui.js",
+        "src/content/main.js",
         "src/shared/messages.js",
         "src/shared/logger.js",
         "src/shared/normalizer.js",
@@ -52,6 +61,7 @@
         "src/shared/optimizer_metrics.js",
         "src/shared/routing_policy_config.js",
         "src/shared/routing_policy.js",
+        "src/shared/token_counter.js",
         "src/shared/optimizer_pipeline.js",
         "src/content/ui_substitution.js",
         "src/content/response_state_tracker.js",
@@ -61,6 +71,16 @@
         "src/content/claude_interceptor.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/injected/bridge.js"
+      ],
+      "matches": [
+        "https://claude.ai/*"
+      ]
     }
   ]
 }

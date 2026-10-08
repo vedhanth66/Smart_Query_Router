@@ -32,6 +32,7 @@
   const contextPackagerModule = globalThis.SmartQueryRouterContextPackager || null;
   const experimentalSummarizerModule = globalThis.SmartQueryRouterExperimentalSummarizer || null;
   const telemetryModule = globalThis.SmartQueryRouterTelemetry || null;
+  const tokenCounterModule = globalThis.SmartQueryRouterTokenCounter || null;
   // Experimental flags: disabled by default and strictly locked to production mode
   const experimentalConfig = {
     enabled: false,
@@ -166,7 +167,9 @@
                 : null,
               decisionType: latestTransientQueryEvent.backendOptimization ? latestTransientQueryEvent.backendOptimization.decision_type : null,
               taskCategory: latestTransientQueryEvent.taskClassification ? latestTransientQueryEvent.taskClassification.category : null,
-              complexityLevel: latestTransientQueryEvent.complexity ? latestTransientQueryEvent.complexity.level : null,
+              complexityLevel: (latestTransientQueryEvent.complexity && latestTransientQueryEvent.complexity.level)
+                || (latestTransientQueryEvent.complexityScore && latestTransientQueryEvent.complexityScore.level)
+                || null,
               cacheOutcome: latestTransientQueryEvent.backendOptimization ? latestTransientQueryEvent.backendOptimization.cache_outcome : null,
               ruleId: latestTransientQueryEvent.routing ? latestTransientQueryEvent.routing.ruleId : null,
               dryRun: Boolean(latestTransientQueryEvent.dryRunMode)
@@ -194,6 +197,70 @@
                   requestId: compFeedback.requestId,
                   routingMetadata: routingMeta
                 });
+              }
+
+              // Calculate and record tokens consumed for this completed Claude interaction
+              if (metricsTracker) {
+                const promptText = (latestTransientQueryEvent && latestTransientQueryEvent.content)
+                  ? latestTransientQueryEvent.content.rawText
+                  : '';
+                const responseText = (meta && meta.rawResponseText) || '';
+                const consumed = tokenCounterModule
+                  ? tokenCounterModule.estimateConsumedTokens(promptText, responseText, turnTracker)
+                  : { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+                if (latestTransientQueryEvent && latestTransientQueryEvent._recordedActivity) {
+                  latestTransientQueryEvent._recordedActivity.tokensConsumed = consumed.totalTokens;
+                  if (consumed.totalTokens > 0) {
+                    metricsTracker.totalTokensConsumed += consumed.totalTokens;
+                    metricsTracker.persist();
+                  }
+                } else if (!latestTransientQueryEvent || !latestTransientQueryEvent._localAnswerResolved) {
+                  const coarseRoute = (routingMeta && routingMeta.coarseRoute) || 'Claude Native Turn';
+                  const compLevel = (routingMeta && routingMeta.complexityLevel) || '';
+                  const activeOverride = userSettingsManager ? userSettingsManager.getRoutingOverride() : 'automatic';
+                  const isHighComp = compLevel === 'HIGH' || compLevel === 'VERY_HIGH' || compLevel === 'COMPLEX';
+                  const isStrong = (activeOverride === 'prefer-strong') ||
+                    (activeOverride !== 'prefer-simple' && (
+                      isHighComp ||
+                      coarseRoute.toLowerCase().includes('strong') ||
+                      coarseRoute.toLowerCase().includes('complex') ||
+                      coarseRoute.toLowerCase().includes('evaluation')
+                    ));
+
+                  const finalRoute = (activeOverride === 'prefer-strong')
+                    ? 'Complex Query'
+                    : (activeOverride === 'prefer-simple')
+                      ? 'Simple Query'
+                      : (isStrong || coarseRoute.toLowerCase().includes('complex'))
+                        ? 'Complex Query'
+                        : (coarseRoute.toLowerCase().includes('simple') ? 'Simple Query' : coarseRoute);
+
+                  let finalReasonCode = isStrong ? 'COMPLEX_TASK_SIGNAL' : 'SIMPLE_TASK_SIGNAL';
+                  if (activeOverride && activeOverride !== 'automatic') {
+                    finalReasonCode = 'USER_OVERRIDE';
+                  }
+
+                  metricsTracker.recordActivity({
+                    route: finalRoute,
+                    modelTier: isStrong ? 'strong' : 'simple',
+                    cacheOutcome: (routingMeta && routingMeta.cacheOutcome) || 'NOT_CHECKED',
+                    tokensSaved: 0,
+                    tokensConsumed: consumed.totalTokens,
+                    latencyMs: (meta && meta.durationMs) || 0,
+                    status: 'COMPLETED',
+                    diagnostics: buildRouteDiagnostics({
+                      routeType: 'MODEL',
+                      routing: {
+                        coarseRoute: finalRoute,
+                        reasonCode: finalReasonCode,
+                        explanation: isStrong
+                          ? 'Classified as complex query based on task complexity signals.'
+                          : 'Classified as simple query based on standalone signals.'
+                      }
+                    })
+                  });
+                }
               }
             } else if (newState === ResponseLifecycleState.RESPONSE_FAILED) {
               const errFeedback = outcomeFeedbackModule.createOutcomeFeedback({
@@ -364,28 +431,91 @@
   // Detect active DOM attachments in Claude UI (attachment pills, upload previews, image thumbnails)
   function detectDomAttachments() {
     try {
-      const attachmentSelectors = [
-        '[data-testid*="attachment"]',
-        '[data-testid*="file-upload"]',
-        '[data-testid*="file-preview"]',
+      const candidates = [];
+
+      // 1. Definite attachment remove buttons (only present on mounted attachment pills in prompt input)
+      const removeBtnSelectors = [
         'button[aria-label*="Remove file" i]',
         'button[aria-label*="Remove attachment" i]',
         'button[aria-label*="Remove image" i]',
         'button[aria-label*="Remove" i][aria-label*="document" i]',
+        'button[aria-label*="Remove" i][aria-label*="upload" i]',
+        'button[aria-label*="Delete attachment" i]',
+        'button[aria-label*="Delete file" i]'
+      ];
+      const removeButtons = document.querySelectorAll(removeBtnSelectors.join(', '));
+      if (removeButtons && removeButtons.length > 0) {
+        removeButtons.forEach((btn) => candidates.push(btn));
+      }
+
+      // 2. Definite preview containers, pills, and uploaded thumbnails
+      const previewSelectors = [
+        '[data-testid*="file-preview"]',
+        '[data-testid*="image-preview"]',
+        '[data-testid*="attachment-preview"]',
+        '[data-testid*="attachment-thumbnail"]',
+        '[data-testid*="attachment-card"]',
+        '[data-testid*="attachment-pill"]',
         '.file-attachment',
-        '[data-testid="image-preview"]',
+        '.attachment-pill',
+        '.attachment-preview',
         'img[alt*="upload" i]'
       ];
+      const previewElements = document.querySelectorAll(previewSelectors.join(', '));
+      if (previewElements && previewElements.length > 0) {
+        previewElements.forEach((el) => {
+          if (!candidates.includes(el)) candidates.push(el);
+        });
+      }
 
-      const foundNodes = document.querySelectorAll(attachmentSelectors.join(', '));
-      const hasAttachments = foundNodes && foundNodes.length > 0;
+      // 3. File inputs that actually have files selected
+      const fileInputs = document.querySelectorAll('input[type="file"]');
+      if (fileInputs && fileInputs.length > 0) {
+        fileInputs.forEach((inp) => {
+          if (inp.files && inp.files.length > 0) {
+            if (!candidates.includes(inp)) candidates.push(inp);
+          }
+        });
+      }
+
+      // 4. Fallback for custom attachment wrappers (e.g. [data-testid="file-upload"] in test harnesses)
+      // Must NOT be an upload trigger button or empty file picker, and must contain an attached item or remove button
+      const customContainers = document.querySelectorAll('[data-testid="file-upload"], [data-testid="attachment"]');
+      if (customContainers && customContainers.length > 0) {
+        customContainers.forEach((el) => {
+          const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+          const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+          const isButton = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button';
+          const isTrigger = testId.includes('button') || testId.includes('trigger') || testId.includes('menu');
+          const isUploadAction = aria.includes('upload') || aria.includes('attach') || aria.includes('add');
+
+          if (isButton && isUploadAction) return;
+          if (isTrigger) return;
+
+          // Check if this container has child remove buttons or preview elements
+          const hasAttachedContent = el.querySelector && Boolean(
+            el.querySelector('button[aria-label*="remove" i], button[aria-label*="delete" i], [data-testid*="preview"], img, .file-attachment')
+          );
+          if (hasAttachedContent) {
+            const alreadyHasChild = candidates.some((c) => el === c || (el.contains && el.contains(c)));
+            if (!alreadyHasChild) {
+              candidates.push(el);
+            }
+          }
+        });
+      }
+
+      const hasAttachments = candidates.length > 0;
       const types = [];
 
       if (hasAttachments) {
-        foundNodes.forEach((node) => {
+        candidates.forEach((node) => {
           const aria = (node.getAttribute('aria-label') || '').toLowerCase();
           const testId = (node.getAttribute('data-testid') || '').toLowerCase();
-          if (aria.includes('image') || testId.includes('image') || node.tagName === 'IMG') {
+          const alt = (node.getAttribute('alt') || '').toLowerCase();
+          const tag = (node.tagName || '').toLowerCase();
+
+          if (aria.includes('image') || testId.includes('image') || alt.includes('image') || tag === 'img') {
             if (!types.includes('image')) types.push('image');
           } else if (aria.includes('file') || testId.includes('file') || aria.includes('document')) {
             if (!types.includes('file')) types.push('file');
@@ -398,7 +528,7 @@
 
       return {
         hasAttachments,
-        count: foundNodes ? foundNodes.length : 0,
+        count: candidates.length,
         types
       };
     } catch (_) {
@@ -450,11 +580,11 @@
 
     if (isCacheHit) {
       reasonCode = ReasonCode.CACHE_HIT;
-      reasonExplanation = 'Response served directly from cache without full model execution.';
+      reasonExplanation = 'Response served directly from cache without full query execution.';
     } else if (escalationOccurred) {
       reasonCode = ReasonCode.ESCALATION;
       const escReason = (execMeta && execMeta.escalation_reason) || options.escalationReason || 'Completeness check failed on initial route.';
-      reasonExplanation = `Initial small-model route escalated to strong model (${escReason}).`;
+      reasonExplanation = `Initial simple-query route escalated to complex query handling (${escReason}).`;
     } else if (userOverride && userOverride !== 'automatic') {
       reasonCode = ReasonCode.USER_OVERRIDE;
       reasonExplanation = `Route selected based on explicit user override preference (${userOverride}).`;
@@ -467,7 +597,10 @@
     } else if (routingReason === 'COMPLEX_RICH_CONTENT' || routingReason === 'COMPLEX_ATTACHMENT_DEPENDENCY' || routingReason === 'COMPLEX_TABLE_DATA') {
       reasonCode = ReasonCode.RICH_CONTENT_PRESERVATION;
       reasonExplanation = 'Query contains rich content, attachments, or tables preserved on strong route.';
-    } else if (routing && routing.route === 'complex-model candidate') {
+    } else if (routing && routing.reasonCode && routing.reasonCode.startsWith('COMPLEX_')) {
+      reasonCode = ReasonCode.COMPLEX_TASK_SIGNAL;
+      reasonExplanation = (routing && routing.explanation) || 'Code, technical keywords, or multi-factor complexity detected.';
+    } else if (routing && (routing.route === 'complex-model candidate' || routing.route === 'needs-evaluation')) {
       reasonCode = ReasonCode.COMPLEX_TASK_SIGNAL;
       reasonExplanation = (routing && routing.explanation) || 'Code, reasoning cues, or structural complexity detected.';
     } else if (routing && routing.explanation) {
@@ -475,7 +608,9 @@
       reasonExplanation = routing.explanation;
     }
 
-    if (routing && Array.isArray(routing.signals)) {
+    if (routing && Array.isArray(routing.matchedSignals)) {
+      signals = routing.matchedSignals.slice(0, 8);
+    } else if (routing && Array.isArray(routing.signals)) {
       signals = routing.signals.slice(0, 8);
     }
 
@@ -591,7 +726,9 @@
           if (metricsTracker) {
             const origLen = extraOptions.substitution.originalLength || 0;
             const subLen = extraOptions.substitution.substitutedLength || 0;
-            const savedTok = Math.max(0, Math.ceil((origLen - subLen) / 4));
+            const savedTok = tokenCounterModule
+              ? Math.max(0, tokenCounterModule.countTokens(promptText) - tokenCounterModule.countTokens(extraOptions.substitution.substitutedText || ''))
+              : Math.max(0, Math.ceil((origLen - subLen) / 4));
             const diag = buildRouteDiagnostics({
               routeType: 'LOCAL',
               routing: {
@@ -605,6 +742,7 @@
               modelTier: 'local',
               cacheOutcome: 'NOT_CHECKED',
               tokensSaved: savedTok,
+              tokensConsumed: 0,
               latencyMs: extraOptions.substitution.durationMs || 1,
               status: 'APPLIED',
               diagnostics: diag
@@ -727,6 +865,19 @@
       }
     }
 
+    // Compute indicative complexity score as an internal heuristic signal (never ground truth)
+    let complexityScore = null;
+    if (complexityScorer && latestTransientQueryEvent) {
+      complexityScore = complexityScorer.computeScore({
+        promptText,
+        localFeatures: latestTransientQueryEvent.features,
+        contextDependency: latestTransientQueryEvent.contextDependency,
+        taskClassification: latestTransientQueryEvent.taskClassification
+      });
+      latestTransientQueryEvent.complexityScore = complexityScore;
+      latestTransientQueryEvent.complexity = complexityScore;
+    }
+
     // Deterministic Routing Policy: classify into coarse routes
     let routingClassification = null;
     const activeOverride = userSettingsManager ? userSettingsManager.getRoutingOverride() : 'automatic';
@@ -748,18 +899,6 @@
           }
         );
       }
-    }
-
-    // Compute indicative complexity score as an internal heuristic signal (never ground truth)
-    let complexityScore = null;
-    if (complexityScorer && latestTransientQueryEvent) {
-      complexityScore = complexityScorer.computeScore({
-        promptText,
-        localFeatures: latestTransientQueryEvent.features,
-        contextDependency: latestTransientQueryEvent.contextDependency,
-        taskClassification: latestTransientQueryEvent.taskClassification
-      });
-      latestTransientQueryEvent.complexityScore = complexityScore;
     }
 
     // Produce sanitized summary safe for diagnostics/logging (zero raw prompt text)
@@ -928,45 +1067,81 @@
             (decisionData.optimization_instructions && decisionData.optimization_instructions.suggested_model) ||
             '';
 
-          // Map backend coarse route values to human-readable display labels
-          // 'complex-model candidate' → 'Complex Model', 'simple-model candidate' → 'Simple Model'
+          // Determine effective route:
+          // 1. User override takes absolute precedence ('prefer-strong' -> 'Complex Query', 'prefer-simple' -> 'Simple Query')
+          // 2. Explicit backend route decision if available
+          // 3. Robust on-device routing classification fallback (fail-open or local execution)
+          const onDeviceRoute = routingClassification ? routingClassification.route : null;
+          const compLevel = (latestTransientQueryEvent && latestTransientQueryEvent.complexity && latestTransientQueryEvent.complexity.level)
+            || (latestTransientQueryEvent && latestTransientQueryEvent.complexityScore && latestTransientQueryEvent.complexityScore.level)
+            || '';
+          const isHighComplexity = compLevel === 'HIGH' || compLevel === 'VERY_HIGH' || compLevel === 'COMPLEX';
+
           let executedRoute;
-          if (rawRoute.includes('complex') || modelRoute.includes('strong') || modelRoute.includes('complex')) {
-            executedRoute = 'Complex Model';
+          let isStrong = false;
+
+          if (activeOverride === 'prefer-strong') {
+            executedRoute = 'Complex Query';
+            isStrong = true;
+          } else if (activeOverride === 'prefer-simple') {
+            executedRoute = 'Simple Query';
+            isStrong = false;
+          } else if (rawRoute.includes('complex') || modelRoute.includes('strong') || modelRoute.includes('complex')) {
+            executedRoute = 'Complex Query';
+            isStrong = true;
           } else if (rawRoute.includes('local') || rawRoute.includes('LOCAL')) {
             executedRoute = 'Local (On-Device)';
+            isStrong = false;
           } else if (rawRoute.includes('simple') || rawRoute.includes('SIMPLE')) {
-            executedRoute = 'Simple Model';
+            executedRoute = 'Simple Query';
+            isStrong = false;
+          } else if (rawRoute.includes('evaluation')) {
+            // Needs-evaluation conservatively defaults to Strong/Complex tier per gateway policy
+            executedRoute = 'Complex Query';
+            isStrong = true;
           } else {
-            executedRoute = rawRoute || 'Simple Model';
+            // Backend offline or returned fail-open with empty route:
+            // Fall back to on-device deterministic routing classification
+            if (onDeviceRoute === 'complex-model candidate' || isHighComplexity || onDeviceRoute === 'needs-evaluation') {
+              executedRoute = 'Complex Query';
+              isStrong = true;
+            } else if (onDeviceRoute === 'local-eligible') {
+              executedRoute = 'Local (On-Device)';
+              isStrong = false;
+            } else {
+              executedRoute = 'Simple Query';
+              isStrong = false;
+            }
           }
-
-          const isStrong = executedRoute === 'Complex Model' ||
-            rawRoute.toLowerCase().includes('complex') ||
-            rawRoute.toLowerCase().includes('strong') ||
-            modelRoute.toLowerCase().includes('strong') ||
-            modelRoute.toLowerCase().includes('complex');
 
           const cacheOutcome = decisionData.cache_outcome || 'MISS';
           const prunedCount = (candidateContextPackage && candidateContextPackage.metadata && candidateContextPackage.metadata.prunedTurnIds)
             ? candidateContextPackage.metadata.prunedTurnIds.length
             : 0;
-          const tokensSaved = (prunedCount * 35) + (cacheOutcome === 'HIT' ? 50 : 0);
+          const promptToks = tokenCounterModule ? tokenCounterModule.countTokens(promptText) : Math.ceil(promptText.length / 4);
+          const tokensSaved = (prunedCount * 35) + (cacheOutcome === 'HIT' ? (promptToks + 20) : 0);
 
           const diag = buildRouteDiagnostics({
+            routing: routingClassification || (latestTransientQueryEvent && latestTransientQueryEvent.routing),
+            complexityScore: complexityScore || (latestTransientQueryEvent && latestTransientQueryEvent.complexity),
+            userOverride: activeOverride,
             decisionData,
             cacheOutcome
           });
 
-          metricsTracker.recordActivity({
+          const recordedActivity = metricsTracker.recordActivity({
             route: executedRoute,
             modelTier: isStrong ? 'strong' : 'simple',
             cacheOutcome,
             tokensSaved,
+            tokensConsumed: 0,
             latencyMs: clientLatencyMs,
             status: 'COMPLETED',
             diagnostics: diag
           });
+          if (latestTransientQueryEvent) {
+            latestTransientQueryEvent._recordedActivity = recordedActivity;
+          }
         }
 
         // Construct telemetry performance record (strictly sanitized, zero raw query text)
@@ -1319,16 +1494,23 @@
             routeType: 'LOCAL',
             cacheOutcome: 'HIT'
           });
+          const tokensSaved = tokenCounterModule
+            ? tokenCounterModule.estimateLocalRuleSavings(text, localCandidate.result, turnTracker)
+            : Math.max(1, Math.ceil(text.length / 4) + 15);
+
           metricsTracker.recordActivity({
             route: 'Local Deterministic Rule',
             modelTier: 'local',
             cacheOutcome: 'HIT',
-            tokensSaved: 50,
+            tokensSaved,
+            tokensConsumed: 0,
             latencyMs: 0.2,
             status: 'RESOLVED_LOCALLY',
             diagnostics: diag
           });
         }
+
+        latestTransientQueryEvent = { _localAnswerResolved: true };
 
         if (logger) {
           logger.info(EventCategory.ROUTING_DECISION, 'Query resolved on-device by local answer card', {
@@ -1434,16 +1616,23 @@
             routeType: 'LOCAL',
             cacheOutcome: 'HIT'
           });
+          const tokensSaved = tokenCounterModule
+            ? tokenCounterModule.estimateLocalRuleSavings(text, localCandidate.result, turnTracker)
+            : Math.max(1, Math.ceil(text.length / 4) + 15);
+
           metricsTracker.recordActivity({
             route: 'Local Deterministic Rule',
             modelTier: 'local',
             cacheOutcome: 'HIT',
-            tokensSaved: 50,
+            tokensSaved,
+            tokensConsumed: 0,
             latencyMs: 0.2,
             status: 'RESOLVED_LOCALLY',
             diagnostics: diag
           });
         }
+
+        latestTransientQueryEvent = { _localAnswerResolved: true };
 
         if (logger) {
           logger.info(EventCategory.ROUTING_DECISION, 'Query resolved on-device by local answer card', {

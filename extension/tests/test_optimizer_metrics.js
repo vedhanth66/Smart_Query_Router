@@ -137,6 +137,22 @@ assert.strictEqual(summary2.estimatedTokenSavings.totalTokensSaved, 155);
 assert.strictEqual(summary2.estimatedTokenSavings.formatted, '155');
 console.log('PASS: Estimated token savings accumulation verified');
 
+// Test 4b: Tokens Consumed Accumulation
+console.log('Test 4b: Tokens consumed accumulation...');
+tracker1.recordActivity({
+  route: 'Claude Native Turn',
+  modelTier: 'simple',
+  cacheOutcome: 'NOT_CHECKED',
+  tokensSaved: 0,
+  tokensConsumed: 120,
+  latencyMs: 800,
+  status: 'COMPLETED'
+});
+const summary2b = tracker1.getMetricsSummary();
+assert.strictEqual(summary2b.tokensConsumed.totalTokensConsumed, 120);
+assert.strictEqual(summary2b.tokensConsumed.formatted, '120');
+console.log('PASS: Tokens consumed accumulation verified');
+
 // Test 5: STRICT PRIVACY INVARIANT - No raw prompts or conversation content
 console.log('Test 5: Privacy scrub guard (rejects prompt and conversation content)...');
 const dirtyRecord = {

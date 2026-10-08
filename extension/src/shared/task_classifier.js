@@ -64,8 +64,8 @@
   // 3. Debugging patterns (explicit error, stack trace, bug investigation)
   const DEBUGGING_REGEX = /\b(?:debug|fix\s+(?:this\s+)?(?:error|bug|issue|exception|crash|code)|stack\s*trace|traceback|syntaxerror|typeerror|referenceerror|nullpointerexception|uncaught\s+exception|why\s+is\s+(?:this|my)\s+(?:failing|crashing|throwing|broken|not\s+working)|segmentation\s+fault)\b/i;
 
-  // 4. Coding patterns (programming instructions, functions, scripts, algorithms)
-  const CODING_INTENT_REGEX = /\b(?:(?:write|implement|create)\s+(?:an?\s+)?(?:[\w-]+\s+){0,2}(?:function|script|code|program|class|method|query|regex|algorithm|api|endpoint|component|decorator|macro|tree|parser)|refactor\s+(?:this\s+)?code|(?:in|using)\s+(?:python|javascript|typescript|c\+\+|rust|golang|java|c#|sql|html|css|bash|ruby|php|swift))\b/i;
+  // 4. Coding patterns (programming instructions, functions, scripts, algorithms, frameworks)
+  const CODING_INTENT_REGEX = /\b(?:(?:write|implement|create|build|develop|design|generate|architect)\s+(?:an?\s+)?(?:[\w-]+\s+){0,3}(?:function|script|code|program|class|method|query|regex|algorithm|api|endpoint|component|decorator|macro|tree|parser|website|app|application|service|database|schema|backend|frontend|fullstack|pipeline|model|microservice|architecture|ui|server)|refactor\s+(?:this\s+)?code|(?:in|using|with)\s+(?:python|javascript|typescript|c\+\+|rust|golang|java|c#|sql|html|css|bash|ruby|php|swift|react|vue|angular|nextjs|svelte|node|django|fastapi|flask|express|spring|docker|kubernetes|pytorch|tensorflow|pandas|numpy|tailwind))\b/i;
 
   // 5. Summarization patterns
   const SUMMARIZATION_REGEX = /\b(?:summarize|summary\s+of|tldr|tl;dr|key\s+takeaways|briefly\s+summarize|give\s+me\s+a\s+summary|condense\s+(?:this|the)|give\s+a\s+brief\s+overview|executive\s+summary)\b/i;
@@ -83,10 +83,10 @@
   const COMPARISON_REGEX = /\b(?:versus|vs\.?|compare|difference\s+between|pros\s+and\s+cons|trade[\s-]?offs?|advantages?\s+and\s+disadvantages?|which\s+(?:one\s+|[\w-]+\s+)?is\s+(?:better|best|faster|preferable|superior)|(?:better|best)\s+between)\b/i;
 
   // 10. Reasoning patterns
-  const REASONING_REGEX = /\b(?:why\b|explain\s+why|step[\s-]by[\s-]step\s+reasoning|cause\s+and\s+effect|derive|derivation\s+of|prove\s+that|proof\s+of|logical\s+deduction|root\s+cause|first\s+principles)\b/i;
+  const REASONING_REGEX = /\b(?:why\b|explain\s+(?:why|how|the\s+mechanism|in\s+detail)|step[\s-]by[\s-]step\s+reasoning|cause\s+and\s+effect|derive|derivation\s+of|prove\s+that|proof\s+of|logical\s+deduction|root\s+cause|first\s+principles|deep[\s-]dive|comprehensive\s+guide|walk\s+through)\b/i;
 
   // 11. Analysis patterns
-  const ANALYSIS_REGEX = /\b(?:analyze|analysis\s+of|evaluate\s+the|dissect|breakdown\s+of|critical\s+analysis|audit|impact\s+of|implications\s+of|feasibility\s+analysis)\b/i;
+  const ANALYSIS_REGEX = /\b(?:analyze|analysis\s+of|evaluate\s+the|dissect|breakdown\s+of|critical\s+analysis|audit|impact\s+of|implications\s+of|feasibility\s+analysis|system\s+design|architect\s+a|design\s+a\s+(?:scalable|distributed|secure|system))\b/i;
 
   // 12. Factual question patterns
   const FACTUAL_QUESTION_PREFIX_REGEX = /^(?:what\s+(?:is|are|was|were)|who\s+(?:is|was|were)|when\s+(?:was|did|is)|where\s+(?:is|are|was)|define|what\s+does\s+[\w\s]+\s+mean|capital\s+of|distance\s+between)\b/i;

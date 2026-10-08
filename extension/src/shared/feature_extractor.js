@@ -29,7 +29,7 @@
   const CODE_FENCE_REGEX = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
   const INLINE_CODE_REGEX = /`[^`\n]+`/g;
   const INDENTED_CODE_LINE_REGEX = /^(?: {4}|\t)[^\s]/m;
-  const COMMON_CODE_KEYWORDS_REGEX = /\b(?:function|const|let|var|def|class|import|from|export|return|async|await|public|private|interface|struct|typedef|void|int|str|bool|nullptr|NULL)\b/;
+  const COMMON_CODE_KEYWORDS_REGEX = /\b(?:function|const|let|var|def|class|import|from|export|return|async|await|public|private|interface|struct|typedef|void|int|str|bool|nullptr|NULL|react|vue|angular|node|express|fastapi|django|flask|docker|kubernetes|sql|postgres|mysql|mongodb|redis|graphql|redux|pytorch|tensorflow|pandas|numpy)\b/i;
   const CODE_SYNTAX_CHARACTERS_REGEX = /[{};][\s\n]*$|=>|->|===|!==|::/m;
 
   // Regular expressions for detecting list items
@@ -60,12 +60,15 @@
   // Reasoning cue phrases
   const REASONING_CUES = [
     { label: 'WHY', regex: /\bwhy\b/i },
-    { label: 'EXPLAIN_WHY', regex: /\bexplain\s+why\b/i },
+    { label: 'EXPLAIN_WHY', regex: /\bexplain\s+(?:why|how|the\s+difference|in\s+detail)\b/i },
     { label: 'HOW_DOES_IT_WORK', regex: /\bhow\s+(?:does|do|can)\s+[\w\s]+\s+work\b/i },
     { label: 'STEP_BY_STEP', regex: /\bstep[\s-]by[\s-]step\b/i },
     { label: 'CAUSE_AND_EFFECT', regex: /\b(?:cause\s+of|reason\s+for|leads?\s+to)\b/i },
     { label: 'DERIVE_OR_PROVE', regex: /\b(?:derive|derivation|prove|proof)\b/i },
-    { label: 'ROOT_CAUSE', regex: /\broot[\s-]cause\b/i }
+    { label: 'ROOT_CAUSE', regex: /\broot[\s-]cause\b/i },
+    { label: 'IN_DETAIL', regex: /\b(?:in\s+detail|detailed\s+(?:overview|explanation|analysis|breakdown|guide))\b/i },
+    { label: 'DEEP_DIVE', regex: /\b(?:deep[\s-]dive|in[\s-]depth|comprehensively\s+explain|detailed\s+explanation|walk\s+me\s+through)\b/i },
+    { label: 'SYSTEM_DESIGN', regex: /\b(?:architecture\s+of|design\s+(?:of|a)|system\s+design|architectural)\b/i }
   ];
 
   // Table patterns
@@ -77,7 +80,7 @@
   // Attachment, image, and file reference patterns
   const ATTACHMENT_REF_REGEX = /\[(?:Attachment|Image|File|Upload)(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:attached\s+(?:file|document|pdf|spreadsheet|notes|data|report|code|screenshot|csv|image)|this\s+attachment|uploaded\s+(?:file|document|csv|data|image|pdf)|see\s+(?:the\s+)?attachment|in\s+the\s+attachment|from\s+the\s+attachment)\b/i;
   const IMAGE_REF_REGEX = /\[Image(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:in\s+this\s+image|look\s+at\s+this\s+(?:image|screenshot|photo|diagram|chart)|attached\s+image|this\s+screenshot|from\s+the\s+image|analyze\s+this\s+image)\b|!\[.*?\]\(.*?\)/i;
-  const FILE_REF_REGEX = /\[File(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:in\s+this\s+file|the\s+(?:csv|pdf|json|yaml|xml|xlsx|docx)\s+file|attached\s+file|uploaded\s+file)\b|\b[\w-]+\.(?:csv|pdf|json|py|js|ts|tsx|jsx|html|css|cpp|c|java|go|rs|sql|md|xlsx|docx|png|jpg|jpeg|webp|svg)\b/i;
+  const FILE_REF_REGEX = /\[File(?:\s*#?\d*)?(?:\s*:\s*[^\]]+)?\]|\b(?:in\s+this\s+file|the\s+(?:csv|pdf|json|yaml|xml|xlsx|docx)\s+file|attached\s+(?:file|document|data)|uploaded\s+(?:file|document|data)|(?:attached|uploaded|in\s+the|see\s+the)\s+[\w-]+\.(?:csv|pdf|json|xlsx|docx|txt))\b/i;
 
   /**
    * Estimates token count based on typical sub-word tokenization ratios.

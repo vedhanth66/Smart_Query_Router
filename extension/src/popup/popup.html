@@ -42,13 +42,13 @@
       <div class="sqr-control-row">
         <div class="sqr-control-label">
           <span class="sqr-label-title">Routing Mode</span>
-          <span class="sqr-label-desc">Model tier selection policy</span>
+          <span class="sqr-label-desc">Query complexity routing policy</span>
         </div>
         <div class="sqr-select-wrapper">
           <select id="select-routing-override" class="sqr-select">
             <option value="automatic">Automatic</option>
-            <option value="prefer-simple">Prefer Simple</option>
-            <option value="prefer-strong">Prefer Strong</option>
+            <option value="prefer-simple">Prefer Simple Query</option>
+            <option value="prefer-strong">Prefer Complex Query</option>
           </select>
         </div>
       </div>
@@ -62,7 +62,7 @@
           <span class="sqr-stat-title">Token Savings</span>
         </div>
         <div class="sqr-stat-value" id="stat-tokens-saved">0</div>
-        <div class="sqr-stat-sub">Pruning & caching</div>
+        <div class="sqr-stat-sub">Pruning & local rules</div>
       </div>
 
       <!-- Cache Hit Rate Card -->
@@ -90,7 +90,7 @@
           <span class="sqr-dot sqr-dot-small"></span> Simple: <strong>0%</strong> (0)
         </span>
         <span class="sqr-dist-label-item" id="label-strong">
-          <span class="sqr-dot sqr-dot-strong"></span> Strong: <strong>0%</strong> (0)
+          <span class="sqr-dot sqr-dot-strong"></span> Complex: <strong>0%</strong> (0)
         </span>
       </div>
     </section>
@@ -178,6 +178,7 @@
   <!-- Scripts -->
   <script src="../shared/user_settings.js"></script>
   <script src="../shared/optimizer_metrics.js"></script>
+  <script src="../shared/token_counter.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

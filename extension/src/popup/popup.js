@@ -162,6 +162,7 @@
             cacheHitRate: { percentage: '0.0%', hits: 0, misses: 0, totalEvaluated: 0 },
             routeDistribution: { smallCount: 0, strongCount: 0, totalRouted: 0, smallPercentage: '50.0%', strongPercentage: '50.0%' },
             estimatedTokenSavings: { totalTokensSaved: 0, formatted: '0' },
+            tokensConsumed: { totalTokensConsumed: 0, formatted: '0' },
             recentActivity: []
           };
 
@@ -197,6 +198,12 @@
       const tokensSavedEl = doc.getElementById('stat-tokens-saved');
       if (tokensSavedEl) {
         tokensSavedEl.textContent = summary.estimatedTokenSavings.formatted || '0';
+      }
+
+      // 2b. Tokens Consumed
+      const tokensConsumedEl = doc.getElementById('stat-tokens-consumed');
+      if (tokensConsumedEl) {
+        tokensConsumedEl.textContent = (summary.tokensConsumed && summary.tokensConsumed.formatted) || '0';
       }
 
       // 3. Cache Hit Rate
@@ -235,7 +242,7 @@
         labelSmall.innerHTML = `<span class="sqr-dot sqr-dot-small"></span> Simple: <strong>${dist.smallPercentage}</strong> (${dist.smallCount})`;
       }
       if (labelStrong) {
-        labelStrong.innerHTML = `<span class="sqr-dot sqr-dot-strong"></span> Strong: <strong>${dist.strongPercentage}</strong> (${dist.strongCount})`;
+        labelStrong.innerHTML = `<span class="sqr-dot sqr-dot-strong"></span> Complex: <strong>${dist.strongPercentage}</strong> (${dist.strongCount})`;
       }
 
       // 5. Developer Diagnostics Section
@@ -286,7 +293,7 @@
             }
 
             const timeStr = formatRelativeTime(item.timestamp);
-            const routeName = item.route || 'Model Routing';
+            const routeName = item.route || 'Query Routing';
             const latencyStr = item.latencyMs ? `${item.latencyMs}ms` : '';
             const savingsStr = item.tokensSaved > 0 ? `+${item.tokensSaved} tok` : '';
             const cacheStr = item.cacheOutcome === 'HIT' ? 'HIT' : (item.cacheOutcome === 'MISS' ? 'MISS' : null);
@@ -382,7 +389,7 @@
       }
 
       if (categoryEl) {
-        categoryEl.textContent = d.taskCategory ? d.taskCategory.toUpperCase() : (activity.modelTier ? `${activity.modelTier.toUpperCase()} TIER` : 'GENERAL');
+        categoryEl.textContent = d.taskCategory ? d.taskCategory.toUpperCase() : (activity.modelTier === 'strong' ? 'COMPLEX QUERY' : (activity.modelTier === 'simple' ? 'SIMPLE QUERY' : (activity.modelTier ? `${activity.modelTier.toUpperCase()} QUERY` : 'GENERAL')));
       }
 
       if (routeNameEl) {

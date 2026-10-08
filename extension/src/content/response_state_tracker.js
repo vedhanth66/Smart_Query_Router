@@ -140,6 +140,12 @@
      */
     _notifyStateChange(newState, previousState, metadata = {}) {
       if (this.logger) {
+        const safeLogMeta = {};
+        for (const [k, v] of Object.entries(metadata)) {
+          if (k !== 'rawResponseText' && k !== 'text' && k !== 'content') {
+            safeLogMeta[k] = v;
+          }
+        }
         this.logger.debug(
           'QUERY_DETECTION',
           `Response lifecycle transition: ${previousState} -> ${newState}`,
@@ -149,7 +155,7 @@
             state: newState,
             previousState,
             failureReason: this.failureReason,
-            ...metadata
+            ...safeLogMeta
           }
         );
       }
@@ -341,7 +347,8 @@
       this._notifyStateChange(ResponseLifecycleState.RESPONSE_COMPLETED, prevState, {
         durationMs,
         turnRecorded,
-        responseLength: cleanText.length
+        responseLength: cleanText.length,
+        rawResponseText: cleanText
       });
 
       return true;

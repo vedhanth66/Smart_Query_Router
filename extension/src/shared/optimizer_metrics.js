@@ -91,6 +91,10 @@
       ? Math.max(0, Math.round(rawRecord.tokensSaved))
       : 0;
 
+    const tokensConsumed = typeof rawRecord.tokensConsumed === 'number' && Number.isFinite(rawRecord.tokensConsumed)
+      ? Math.max(0, Math.round(rawRecord.tokensConsumed))
+      : 0;
+
     const latencyMs = typeof rawRecord.latencyMs === 'number' && Number.isFinite(rawRecord.latencyMs)
       ? Math.max(0, Math.round(rawRecord.latencyMs))
       : 0;
@@ -176,6 +180,7 @@
       modelTier,
       cacheOutcome,
       tokensSaved,
+      tokensConsumed,
       latencyMs,
       status,
       diagnostics
@@ -205,6 +210,7 @@
       this.cacheMisses = 0;
       this.cacheBypasses = 0;
       this.totalTokensSaved = 0;
+      this.totalTokensConsumed = 0;
       this.recentActivity = [];
       this.loaded = false;
     }
@@ -243,9 +249,12 @@
         this.cacheBypasses += 1;
       }
 
-      // Update token savings
+      // Update token savings & consumption
       if (sanitized.tokensSaved > 0) {
         this.totalTokensSaved += sanitized.tokensSaved;
+      }
+      if (sanitized.tokensConsumed > 0) {
+        this.totalTokensConsumed += sanitized.tokensConsumed;
       }
 
       // Append to recent activity ring buffer (newest first)
@@ -312,6 +321,10 @@
           totalTokensSaved: this.totalTokensSaved,
           formatted: this.totalTokensSaved.toLocaleString()
         },
+        tokensConsumed: {
+          totalTokensConsumed: this.totalTokensConsumed,
+          formatted: this.totalTokensConsumed.toLocaleString()
+        },
         totalQueries: this.totalQueries,
         recentActivity: [...this.recentActivity]
       };
@@ -333,6 +346,7 @@
         cacheMisses: this.cacheMisses,
         cacheBypasses: this.cacheBypasses,
         totalTokensSaved: this.totalTokensSaved,
+        totalTokensConsumed: this.totalTokensConsumed,
         recentActivity: this.recentActivity
       };
 
@@ -368,6 +382,7 @@
               this.cacheMisses = Number(data.cacheMisses) || 0;
               this.cacheBypasses = Number(data.cacheBypasses) || 0;
               this.totalTokensSaved = Number(data.totalTokensSaved) || 0;
+              this.totalTokensConsumed = Number(data.totalTokensConsumed) || 0;
               if (Array.isArray(data.recentActivity)) {
                 this.recentActivity = data.recentActivity
                   .map(sanitizeActivityRecord)
@@ -398,6 +413,7 @@
       this.cacheMisses = 0;
       this.cacheBypasses = 0;
       this.totalTokensSaved = 0;
+      this.totalTokensConsumed = 0;
       this.recentActivity = [];
       await this.persist();
     }

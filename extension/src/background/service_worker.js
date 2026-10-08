@@ -15,6 +15,7 @@ importScripts('/src/shared/privacy_config.js');
 importScripts('/src/shared/outcome_feedback.js');
 importScripts('/src/shared/user_settings.js');
 importScripts('/src/shared/optimizer_metrics.js');
+importScripts('/src/shared/token_counter.js');
 importScripts('/src/shared/routing_policy_config.js');
 importScripts('/src/shared/routing_policy.js');
 importScripts('/src/background/health_tracker.js');

@@ -296,14 +296,14 @@
                 ? rc.types.slice()
                 : ((tables.hasTable || tables.hasTables) ? ['table'] : ['attachment']);
               let reasonCode = RoutingReasonCode.COMPLEX_RICH_CONTENT;
-              let explanation = 'Query contains rich input data requiring conservative model routing and full content preservation.';
+              let explanation = 'Query contains rich input data requiring conservative query routing and full content preservation.';
 
               if (rc.hasAttachments || rc.hasImages || rc.hasFiles || attachments.hasAttachment || attachments.hasAttachments) {
                 reasonCode = RoutingReasonCode.COMPLEX_ATTACHMENT_DEPENDENCY;
-                explanation = `Query depends on attachments, images, or file uploads (${signals.join(', ')}). Requires complex model for multi-modal reasoning and full content preservation.`;
+                explanation = `Query depends on attachments, images, or file uploads (${signals.join(', ')}). Requires complex query handling for multi-modal reasoning and full content preservation.`;
               } else if (rc.hasTables || tables.hasTable || tables.hasTables) {
                 reasonCode = RoutingReasonCode.COMPLEX_TABLE_DATA;
-                explanation = `Query contains structured table data (${signals.join(', ')}). Requires complex model for tabular analysis and structure preservation.`;
+                explanation = `Query contains structured table data (${signals.join(', ')}). Requires complex query handling for tabular analysis and structure preservation.`;
               }
 
               return {
@@ -356,7 +356,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_CODE',
                 reasonCode: RoutingReasonCode.COMPLEX_CODE_SYNTAX,
-                explanation: `Detected programming code blocks, syntax keywords, or ${taskCategory} task intent. Recommends flagship model for technical code analysis and execution.`,
+                explanation: `Detected programming code blocks, syntax keywords, or ${taskCategory} task intent. Classified as complex query for technical code analysis.`,
                 confidence: this.config.thresholds.minCodeSyntaxConfidence || 0.90,
                 matchedSignals: signals,
                 taskCategory,
@@ -382,7 +382,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_MATH',
                 reasonCode: RoutingReasonCode.COMPLEX_MATH_NOTATION,
-                explanation: 'Detected mathematical formulas, operators, or LaTeX notation. Recommends complex model capable of advanced mathematical derivation.',
+                explanation: 'Detected mathematical formulas, operators, or LaTeX notation. Classified as complex query for advanced mathematical derivation.',
                 confidence: this.config.thresholds.minMathConfidence || 0.85,
                 matchedSignals: signals,
                 taskCategory,
@@ -407,7 +407,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_REASONING_CUE',
                 reasonCode: RoutingReasonCode.COMPLEX_REASONING_CUE,
-                explanation: `Detected multi-step reasoning cues or task (${detectedCues.join(', ')}). Recommends complex model for deep explanation and analytical reasoning.`,
+                explanation: `Detected multi-step reasoning cues or task (${detectedCues.join(', ')}). Classified as complex query for deep explanation and analytical reasoning.`,
                 confidence: this.config.thresholds.minReasoningCueConfidence || 0.85,
                 matchedSignals: detectedCues.length > 0 ? detectedCues : ['hasReasoningCue'],
                 taskCategory,
@@ -432,7 +432,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_COMPARISON_CUE',
                 reasonCode: RoutingReasonCode.COMPLEX_COMPARISON_CUE,
-                explanation: `Detected comparative analysis cues or task (${detectedCues.join(', ')}). Recommends complex model for nuanced trade-off evaluation.`,
+                explanation: `Detected comparative analysis cues or task (${detectedCues.join(', ')}). Classified as complex query for nuanced trade-off evaluation.`,
                 confidence: this.config.thresholds.minComparisonCueConfidence || 0.85,
                 matchedSignals: detectedCues.length > 0 ? detectedCues : ['hasComparisonCue'],
                 taskCategory,
@@ -452,7 +452,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_ANALYSIS',
                 reasonCode: RoutingReasonCode.COMPLEX_ANALYSIS_TASK,
-                explanation: 'Task classified as in-depth analytical examination or breakdown. Recommends complex model for nuanced analytical reasoning.',
+                explanation: 'Task classified as in-depth analytical examination or breakdown. Classified as complex query for nuanced analytical reasoning.',
                 confidence: 0.85,
                 matchedSignals: ['task:analysis'],
                 taskCategory,
@@ -478,7 +478,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_MULTI_QUESTION',
                 reasonCode: RoutingReasonCode.COMPLEX_MULTI_QUESTION,
-                explanation: `Detected multiple questions (${questions.questionCount} questions). Recommends complex model for addressing compound inquiries.`,
+                explanation: `Detected multiple questions (${questions.questionCount} questions). Classified as complex query for compound inquiries.`,
                 confidence: 0.80,
                 matchedSignals: [`questionCount:${questions.questionCount}`],
                 taskCategory,
@@ -504,7 +504,7 @@
                 route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
                 ruleId: 'RULE_COMPLEX_STRUCTURED_LIST',
                 reasonCode: RoutingReasonCode.COMPLEX_STRUCTURED_LIST,
-                explanation: `Detected structured multi-item list (${lists.totalCount} items, type: ${lists.listType}). Recommends complex model for structured itemization.`,
+                explanation: `Detected structured multi-item list (${lists.totalCount} items, type: ${lists.listType}). Classified as complex query for structured itemization.`,
                 confidence: 0.75,
                 matchedSignals: [`listType:${lists.listType}`, `totalListItems:${lists.totalCount}`],
                 taskCategory,
@@ -516,6 +516,39 @@
             break;
           }
 
+          case 'RULE_COMPLEX_SCORE': {
+            const comp = queryEvent.complexity || queryEvent.complexityScore || null;
+            const isHighComplexity = Boolean(
+              comp && (
+                comp.level === 'HIGH' ||
+                comp.level === 'VERY_HIGH' ||
+                comp.level === 'COMPLEX' ||
+                (typeof comp.score === 'number' && comp.score >= 0.50)
+              )
+            );
+
+            if (isHighComplexity && this.config.enabledRoutes[CoarseRoute.COMPLEX_MODEL_CANDIDATE]) {
+              trace.push('RULE_COMPLEX_SCORE:MATCH');
+              const signals = [`complexityLevel:${comp.level || 'HIGH'}`, `complexityScore:${comp.score}`];
+              if (taskCategory !== 'unknown') signals.push(`task:${taskCategory}`);
+
+              return {
+                route: CoarseRoute.COMPLEX_MODEL_CANDIDATE,
+                ruleId: 'RULE_COMPLEX_SCORE',
+                reasonCode: RoutingReasonCode.COMPLEX_TASK_SIGNAL,
+                explanation: `Multi-factor query complexity evaluated as ${comp.level || 'HIGH'} (score: ${comp.score}). Classified as complex query for analytical handling.`,
+                confidence: typeof comp.confidence === 'number' ? comp.confidence : 0.85,
+                matchedSignals: signals,
+                taskCategory,
+                taskSignal,
+                userOverride,
+                ruleTrace: trace
+              };
+            }
+            trace.push('RULE_COMPLEX_SCORE:PASS');
+            break;
+          }
+
           case 'RULE_SIMPLE_INQUIRY': {
             // Single-intent standalone query with zero complex features
             const code = features.code || {};
@@ -524,18 +557,20 @@
             const questions = features.questions || {};
             const lists = features.lists || {};
             const rc = features.richContent || {};
+            const comp = queryEvent.complexity || queryEvent.complexityScore || null;
 
             const hasAnyCode = Boolean(code.hasCodeSyntax || code.hasCodeFence || code.hasIndentedCode || taskCategory === 'coding' || taskCategory === 'debugging');
-            const hasAnyMath = Boolean(math.hasLatexMath || math.hasMathSymbols);
+            const hasAnyMath = Boolean(math.hasLatexMath || (math.hasMathSymbols && math.symbolCount >= 2));
             const hasAnyCue = Boolean(cues.hasReasoningCue || cues.hasComparisonCue || taskCategory === 'reasoning' || taskCategory === 'comparison' || taskCategory === 'analysis');
             const hasMultipleQuestions = Boolean(questions.hasMultipleQuestions);
             const hasComplexList = Boolean(lists.hasList && lists.totalCount >= 3);
             const isContextDependent = Boolean(contextDep.requiresContextAnalysis);
             const hasRichContent = Boolean(rc.hasRichInput);
+            const isElevatedComplexity = Boolean(comp && (comp.level === 'HIGH' || comp.level === 'VERY_HIGH' || comp.level === 'COMPLEX' || (typeof comp.score === 'number' && comp.score >= 0.45)));
 
             const isCleanSimple = !hasAnyCode && !hasAnyMath && !hasAnyCue &&
               !hasMultipleQuestions && !hasComplexList && !isContextDependent &&
-              !hasRichContent;
+              !hasRichContent && !isElevatedComplexity;
 
             if (isCleanSimple && this.config.enabledRoutes[CoarseRoute.SIMPLE_MODEL_CANDIDATE]) {
               trace.push('RULE_SIMPLE_INQUIRY:MATCH');
@@ -547,7 +582,7 @@
                 route: CoarseRoute.SIMPLE_MODEL_CANDIDATE,
                 ruleId: 'RULE_SIMPLE_INQUIRY',
                 reasonCode: RoutingReasonCode.SIMPLE_DIRECT_INQUIRY,
-                explanation: `Self-contained standalone inquiry (task: ${taskCategory}) with no code, math notation, multi-step reasoning, or conversational dependencies. Suitable for fast, cost-effective model.`,
+                explanation: `Self-contained standalone inquiry (task: ${taskCategory}) with no code, math notation, multi-step reasoning, or conversational dependencies. Suitable for fast, lightweight processing.`,
                 confidence: 0.85,
                 matchedSignals: signals,
                 taskCategory,
