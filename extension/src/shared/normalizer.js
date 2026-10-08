@@ -88,8 +88,10 @@
    * @returns {string}
    */
   function normalizeProseWhitespace(proseText) {
-    // Collapses multiple consecutive spaces and tabs down to a single space
-    return proseText.replace(/[ \t]+/g, ' ');
+    // Standardizes non-breaking/zero-width spaces and collapses multiple consecutive horizontal spaces down to a single space
+    return proseText
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+      .replace(/[\u00A0 \t]+/g, ' ');
   }
 
   /**

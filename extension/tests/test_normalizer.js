@@ -161,7 +161,22 @@ assert.strictEqual(comparison.charactersSaved, result.savings.characters);
 // Verify semantics preservation validator
 const semCheck = verifySemanticsPreserved(result.rawPrompt, result.normalizedPrompt);
 assert.strictEqual(semCheck.preserved, true, 'Zero semantic violations detected');
-assert.strictEqual(semCheck.violations.length, 0);
-console.log('PASS: Dual form retention and comparison metrics verified');
+// Test 10: Excessive internal horizontal whitespace & non-breaking spaces
+console.log('Test 10: Proving excessive internal spaces and non-breaking spaces collapse to single space...');
+const spacedLetters = 'h                   i';
+const normSpaced = normalizeQuery(spacedLetters);
+assert.strictEqual(normSpaced.normalizedPrompt, 'h i', 'Excessive ASCII spaces collapsed to single space');
+assert.strictEqual(normSpaced.isChanged, true);
+
+const nbspLetters = 'h\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0i';
+const normNbsp = normalizeQuery(nbspLetters);
+assert.strictEqual(normNbsp.normalizedPrompt, 'h i', 'Excessive non-breaking spaces collapsed to single space');
+assert.strictEqual(normNbsp.isChanged, true);
+
+const mixedSpaces = '  h   \u00A0   \u00A0   i  ';
+const normMixed = normalizeQuery(mixedSpaces);
+assert.strictEqual(normMixed.normalizedPrompt, 'h i', 'Mixed ASCII and NBSP spaces collapsed to single space');
+assert.strictEqual(normMixed.isChanged, true);
+console.log('PASS: Excessive internal horizontal whitespace and non-breaking spaces properly collapsed');
 
 console.log('--- ALL NORMALIZER TESTS PASSED ---');

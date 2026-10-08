@@ -112,6 +112,14 @@
      */
     extractText(editorElement) {
       if (!editorElement) return '';
+      const pElements = editorElement.querySelectorAll ? editorElement.querySelectorAll('p') : null;
+      if (pElements && pElements.length > 0) {
+        const lines = [];
+        pElements.forEach((p) => {
+          lines.push(p.innerText !== undefined ? p.innerText : (p.textContent || ''));
+        });
+        return lines.join('\n').trim();
+      }
       return (editorElement.innerText || editorElement.textContent || '').trim();
     }
 
@@ -291,11 +299,16 @@
         if (!replaced) {
           if (doc && typeof doc.createRange === 'function') {
             try {
-              const range = doc.createRange();
-              range.selectNodeContents(editorElement);
-              range.deleteContents();
-              const textNode = doc.createTextNode(replacementText);
-              range.insertNode(textNode);
+              const p = editorElement.querySelector ? editorElement.querySelector('p') : null;
+              if (p && !replacementText.includes('\n')) {
+                p.textContent = replacementText;
+              } else {
+                const range = doc.createRange();
+                range.selectNodeContents(editorElement);
+                range.deleteContents();
+                const textNode = doc.createTextNode(replacementText);
+                range.insertNode(textNode);
+              }
               replaced = true;
             } catch (_) {
               editorElement.textContent = replacementText;
@@ -325,7 +338,9 @@
 
         // Verify editor content reflects substitution
         const afterText = this.extractText(editorElement);
-        const wasApplied = afterText === replacementText || afterText.length === replacementText.length;
+        const wasApplied = afterText === replacementText ||
+          afterText.length === replacementText.length ||
+          afterText.replace(/[\u00A0 \t]+/g, ' ') === replacementText.replace(/[\u00A0 \t]+/g, ' ');
 
         if (this.logger && typeof this.logger.info === 'function') {
           this.logger.info('OPTIMIZATION_DECISION', 'Prompt normalization applied via safe UI substitution', {

@@ -191,6 +191,19 @@ substitutor.applyPromptOptimization(privateEditor);
 
 const allLogText = JSON.stringify(logger.getRecentLogs());
 assert.strictEqual(allLogText.includes(sensitiveSnippet), false, 'Raw prompt must never appear in logger output');
-console.log('PASS: Privacy audit confirmed zero user prompt text in diagnostic logs');
+// Test 9: Whitespace and NBSP collapsed in DOM editor (e.g. 'h                   i' -> 'h i')
+console.log('Test 9: Verifying excessive internal spaces are substituted to single space in DOM...');
+const spacedEditor = new MockContentEditableNode('h                   i');
+const spacedSubResult = substitutor.applyPromptOptimization(spacedEditor);
+assert.strictEqual(spacedSubResult.status, SubstitutionStatus.APPLIED);
+assert.strictEqual(spacedSubResult.substitutedText, 'h i');
+assert.strictEqual(spacedEditor.textContent, 'h i');
+
+const nbspEditor = new MockContentEditableNode('h\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0i');
+const nbspSubResult = substitutor.applyPromptOptimization(nbspEditor);
+assert.strictEqual(nbspSubResult.status, SubstitutionStatus.APPLIED);
+assert.strictEqual(nbspSubResult.substitutedText, 'h i');
+assert.strictEqual(nbspEditor.textContent, 'h i');
+console.log('PASS: Spaced queries correctly substituted to single space in DOM editor');
 
 console.log('--- ALL SAFE UI-LEVEL SUBSTITUTION TESTS PASSED ---');

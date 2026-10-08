@@ -412,20 +412,21 @@
     return isConvPath || hasEditor;
   }
 
-  function extractEditorText(editor) {
+  function extractRawEditorText(editor) {
     if (!editor) return '';
-    let text = '';
     const pElements = editor.querySelectorAll ? editor.querySelectorAll('p') : null;
     if (pElements && pElements.length > 0) {
       const lines = [];
       pElements.forEach((p) => {
-        lines.push(p.innerText || p.textContent || '');
+        lines.push(p.innerText !== undefined ? p.innerText : (p.textContent || ''));
       });
-      text = lines.join(' ');
-    } else {
-      text = editor.innerText || editor.textContent || '';
+      return lines.join('\n');
     }
-    return sanitizeQueryString(text);
+    return editor.innerText !== undefined ? editor.innerText : (editor.textContent || '');
+  }
+
+  function extractEditorText(editor) {
+    return extractRawEditorText(editor);
   }
 
   // Detect active DOM attachments in Claude UI (attachment pills, upload previews, image thumbnails)
@@ -1453,7 +1454,7 @@
     if (!editor) return;
 
     let text = extractEditorText(editor);
-    if (!text || text.length === 0) return;
+    if (!text || text.length === 0 || !text.trim()) return;
 
     const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
 
@@ -1575,7 +1576,7 @@
     if (!editor) return;
 
     let text = extractEditorText(editor);
-    if (!text || text.length === 0) return;
+    if (!text || text.length === 0 || !text.trim()) return;
 
     const isBypass = uiSubstitutor ? uiSubstitutor.isBypassTrigger(event) : false;
 
