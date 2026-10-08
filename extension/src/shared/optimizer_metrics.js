@@ -51,6 +51,108 @@
   });
 
   /**
+   * Constructs a sanitized, developer-facing routing diagnostics record.
+   * Explains route selection using standardized reason codes and internal signals.
+   * STRICT PRIVACY GUARANTEE: Never includes raw user prompts or conversation text.
+   * @param {object} [options]
+   * @returns {object}
+   */
+  function buildRouteDiagnostics(options = {}) {
+    const routing = options.routing || null;
+    const complexity = options.complexityScore || options.complexity || null;
+    const decisionData = options.decisionData || null;
+    const execMeta = decisionData && decisionData.execution_metadata ? decisionData.execution_metadata : null;
+    const cacheOutcome = options.cacheOutcome || (decisionData ? decisionData.cache_outcome : 'MISS');
+    const userOverride = options.userOverride || 'automatic';
+
+    let reasonCode = RoutingReasonCode.SIMPLE_TASK_SIGNAL;
+    let reasonExplanation = 'Query evaluated as self-contained with low complexity signals.';
+    let signals = [];
+
+    const routingReason = routing ? routing.reasonCode : null;
+    const isCacheHit = cacheOutcome === 'HIT' || cacheOutcome === 'SEMANTIC_HIT';
+    const escalationOccurred = execMeta ? Boolean(execMeta.escalation_occurred) : Boolean(options.escalationOccurred);
+
+    if (isCacheHit) {
+      reasonCode = RoutingReasonCode.CACHE_HIT;
+      reasonExplanation = 'Response served directly from cache without full query execution.';
+    } else if (escalationOccurred) {
+      reasonCode = RoutingReasonCode.ESCALATION;
+      const escReason = (execMeta && execMeta.escalation_reason) || options.escalationReason || 'Completeness check failed on initial route.';
+      reasonExplanation = `Initial simple-query route escalated to complex query handling (${escReason}).`;
+    } else if (userOverride && userOverride !== 'automatic') {
+      reasonCode = RoutingReasonCode.USER_OVERRIDE;
+      reasonExplanation = `Route selected based on explicit user override preference (${userOverride}).`;
+    } else if (routingReason === 'LOCAL_DETERMINISTIC_RULE_MATCH' || options.routeType === 'LOCAL') {
+      reasonCode = RoutingReasonCode.LOCAL_RULE_MATCH;
+      reasonExplanation = 'Query handled directly by deterministic local rules (e.g. utility or formatting).';
+    } else if (routingReason === 'CONTEXT_DEPENDENCY_DETECTED') {
+      reasonCode = RoutingReasonCode.CONTEXT_DEPENDENCY;
+      reasonExplanation = 'Query requires prior conversation context, anaphoric reference, or turn history.';
+    } else if (routingReason === 'COMPLEX_RICH_CONTENT' || routingReason === 'COMPLEX_ATTACHMENT_DEPENDENCY' || routingReason === 'COMPLEX_TABLE_DATA') {
+      reasonCode = RoutingReasonCode.RICH_CONTENT_PRESERVATION;
+      reasonExplanation = 'Query contains rich content, attachments, or tables preserved on strong route.';
+    } else if (routing && routing.reasonCode && routing.reasonCode.startsWith('COMPLEX_')) {
+      reasonCode = RoutingReasonCode.COMPLEX_TASK_SIGNAL;
+      reasonExplanation = routing.explanation || 'Code, technical keywords, or multi-factor complexity detected.';
+    } else if (routing && (routing.route === 'complex-model candidate' || routing.route === 'needs-evaluation')) {
+      reasonCode = RoutingReasonCode.COMPLEX_TASK_SIGNAL;
+      reasonExplanation = routing.explanation || 'Code, reasoning cues, or structural complexity detected.';
+    } else if (routing && routing.explanation) {
+      reasonCode = RoutingReasonCode.SIMPLE_TASK_SIGNAL;
+      reasonExplanation = routing.explanation;
+    }
+
+    if (routing && Array.isArray(routing.matchedSignals)) {
+      signals = routing.matchedSignals.slice(0, 8);
+    } else if (routing && Array.isArray(routing.signals)) {
+      signals = routing.signals.slice(0, 8);
+    }
+
+    let internalSignals = null;
+    if (complexity) {
+      internalSignals = {
+        score: complexity.score,
+        level: complexity.level,
+        confidence: complexity.confidence,
+        isSignalOnly: true,
+        label: 'Internal Heuristic Signal',
+        disclaimer: 'Indicative heuristic signal only; not an objective complexity measure',
+        factorBreakdown: (complexity.breakdown && typeof complexity.breakdown === 'object')
+          ? {
+              length: (complexity.breakdown.length && complexity.breakdown.length.weighted) || 0,
+              code: (complexity.breakdown.code && complexity.breakdown.code.weighted) || 0,
+              list: (complexity.breakdown.listStructure && complexity.breakdown.listStructure.weighted) || 0,
+              cues: (complexity.breakdown.cues && complexity.breakdown.cues.weighted) || 0,
+              context: (complexity.breakdown.contextDependency && complexity.breakdown.contextDependency.weighted) || 0,
+              task: (complexity.breakdown.taskType && complexity.breakdown.taskType.weighted) || 0
+            }
+          : null
+      };
+    }
+
+    let escalationDetails = null;
+    if (escalationOccurred) {
+      escalationDetails = {
+        evaluatorId: (execMeta && execMeta.evaluator_id) || options.evaluatorId || 'completeness_evaluator',
+        completeness: (execMeta && execMeta.completeness_score !== undefined) ? execMeta.completeness_score : (options.completenessScore !== undefined ? options.completenessScore : null),
+        detectedIssues: (execMeta && Array.isArray(execMeta.detected_issues)) ? execMeta.detected_issues : (Array.isArray(options.detectedIssues) ? options.detectedIssues : [])
+      };
+    }
+
+    const taskCat = options.taskCategory || (routing && routing.taskCategory) || null;
+
+    return {
+      reasonCode,
+      reasonExplanation,
+      taskCategory: taskCat,
+      signals,
+      internalSignals,
+      escalationDetails
+    };
+  }
+
+  /**
    * Sanitizes an activity record, strictly allowing only high-level metadata.
    * Discards any conversational or sensitive fields.
    * @param {object} rawRecord
@@ -426,6 +528,7 @@
 
   return {
     RoutingReasonCode,
+    buildRouteDiagnostics,
     METRICS_STORAGE_KEY,
     MAX_RECENT_ACTIVITY,
     sanitizeActivityRecord,

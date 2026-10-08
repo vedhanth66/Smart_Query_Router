@@ -4,23 +4,12 @@
  * Enforces quiet-by-default behavior and privacy redaction.
  */
 
-// Import shared modules
+// Import required shared modules
 importScripts('/src/shared/messages.js');
 importScripts('/src/shared/logger.js');
-importScripts('/src/shared/telemetry.js');
-importScripts('/src/shared/task_classifier.js');
-importScripts('/src/shared/complexity_scorer_config.js');
-importScripts('/src/shared/complexity_scorer.js');
-importScripts('/src/shared/privacy_config.js');
-importScripts('/src/shared/outcome_feedback.js');
-importScripts('/src/shared/user_settings.js');
 importScripts('/src/shared/optimizer_metrics.js');
-importScripts('/src/shared/token_counter.js');
-importScripts('/src/shared/routing_policy_config.js');
-importScripts('/src/shared/routing_policy.js');
 importScripts('/src/background/health_tracker.js');
 importScripts('/src/shared/backend_client.js');
-importScripts('/src/shared/optimizer_pipeline.js');
 
 const EXTENSION_NAME = 'Smart Query Router';
 const EXTENSION_VERSION = '0.1.0';
